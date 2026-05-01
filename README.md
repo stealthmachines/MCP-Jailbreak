@@ -1,5 +1,3 @@
-<img width="1671" height="871" alt="image" src="https://github.com/user-attachments/assets/b70603e0-7caf-4929-afbb-a30645eb90d8" />
-
 # MCP Jailbreak (local-mcp)
 
 A fully local MCP (Model Context Protocol) server. No cloud. No telemetry. No external APIs.  
@@ -49,6 +47,8 @@ After ensuring Developer Mode is ENABLED, you will need to add the following sim
   }
 }
 ```
+
+<img width="1671" height="871" alt="image" src="https://github.com/user-attachments/assets/b70603e0-7caf-4929-afbb-a30645eb90d8" />
 
 Then, quit out of LM Studio, open it back up, load your model.
 
