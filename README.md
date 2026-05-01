@@ -55,7 +55,7 @@ Then, quit out of LM Studio, open it back up, load your model.
 From here, add the tool within a given chat using the "+" "attach" button...  You should now see 'local-mcp' among the toolset of your friendly bot.
 <img width="1461" height="1043" alt="image" src="https://github.com/user-attachments/assets/90ea67de-89be-4afc-9db8-b64e1c2d1c32" />
 
-From here, you may need to use a quick prompt to help your bot familiarize itself with the new tools.  I asked my bot about 'local-mcp' and it was utterly confused, but proceeded to list the tools functions.  Silly robot.
+From here, you may need to use a quick prompt to help your bot familiarize itself with the new tools.  I asked my bot about 'local-mcp' and it was utterly confused, but proceeded to list the tool's functions anyway, which we used to latch onto those new hands.  Silly robot.
 
 <img width="1465" height="1001" alt="image" src="https://github.com/user-attachments/assets/94c10eaa-71b3-4bdc-8dad-b0b98a18394f" />
 
