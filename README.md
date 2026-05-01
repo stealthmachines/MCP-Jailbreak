@@ -33,7 +33,22 @@ http://localhost:3333/sse
 ```
 
 ### Open WebUI / AnythingLLM / Msty
-Add a new MCP connection → SSE → `http://localhost:3333/sse`
+While the local server-as-a-tool-suite was built for LM Studio, it can technically be used for many others platforms.
+
+In general, add a new MCP connection → SSE → `http://localhost:3333/sse`
+
+### LM Studio
+After ensuring Developer Mode is ENABLED, you will need to add the following simple json paramters.  Navigate to Developer (left-hand side panel) → local server → click mcp.json → copy and paste the following in place of whatever was there before.
+
+```json
+{
+  "mcpServers": {
+    "local-mcp": {
+      "url": "http://localhost:3333/sse"
+    }
+  }
+}
+```
 
 ### Claude Desktop (`claude_desktop_config.json`)
 ```json
