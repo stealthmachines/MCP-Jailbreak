@@ -3,6 +3,8 @@
 A fully local MCP (Model Context Protocol) server. No cloud. No telemetry. No external APIs.  
 Gives any MCP-compatible client full tool access to your machine.
 
+LM Studio's initial conditions are pretty barebone.  The sandbox is so constricting!  Lets fix that...
+
 ## Quick start
 
 ```bash
