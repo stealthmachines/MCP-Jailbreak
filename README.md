@@ -1,4 +1,4 @@
-<img width="661" height="230" alt="image" src="https://github.com/user-attachments/assets/bfaf5980-269e-4d8a-94d8-335c55bdb7c0" />
+<img width="680" height="272" alt="image" src="https://github.com/user-attachments/assets/9681e874-b61a-4eaf-a565-ba512d307a8c" />
 
 # MCP Jailbreak (local-mcp)
 
