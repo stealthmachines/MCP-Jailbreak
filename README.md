@@ -1,4 +1,4 @@
-# local-mcp
+# MCP Jailbreaker (local-mcp)
 
 A fully local MCP (Model Context Protocol) server. No cloud. No telemetry. No external APIs.  
 Gives any MCP-compatible client full tool access to your machine.
