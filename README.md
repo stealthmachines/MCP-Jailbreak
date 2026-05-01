@@ -1,3 +1,5 @@
+<img width="656" height="601" alt="image" src="https://github.com/user-attachments/assets/c933beef-23fa-4377-89fa-d9f0c97902f3" />
+
 # MCP Jailbreak (local-mcp)
 
 A fully local MCP (Model Context Protocol) server. No cloud. No telemetry. No external APIs.  
