@@ -1,6 +1,7 @@
-<img width="614" height="586" alt="image" src="https://github.com/user-attachments/assets/335d3771-fa47-46a0-ae16-f9c4979e5d2c" />
+<img width="784" height="434" alt="image" src="https://github.com/user-attachments/assets/1a64bc98-8903-4391-8caf-eb00469adab7" />
 
-# local-mcp  v0.2
+# local-mcp  v0.3
+This readme is out of date and for now, please combine it with the main branch readme for the full picture.
 
 A fully local MCP server with **57 tools across 14 capability groups**.  
 No cloud. No telemetry. No external APIs (unless you configure Telegram/SMTP).
