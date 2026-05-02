@@ -1,3 +1,5 @@
+NEW!  Version 0.2 is here - https://github.com/stealthmachines/MCP-Jailbreak/tree/v0.2
+
 <img width="680" height="272" alt="image" src="https://github.com/user-attachments/assets/9681e874-b61a-4eaf-a565-ba512d307a8c" />
 
 # MCP Jailbreak (local-mcp)
