@@ -645,6 +645,26 @@ const TOOLS = [
     },
   },
 
+  // ── BRIEFING ───────────────────────────────────────────────────────────────
+  {
+    name: "get_briefing",
+    description: "CALL THIS FIRST. Returns a full orientation briefing: what environment you are in, which tools are callable, what is globally available on the host, and how to act effectively. Always call this at the start of a session before attempting any task.",
+    inputSchema: { type: "object", properties: {} },
+  },
+
+  // ── CONTEXT ────────────────────────────────────────────────────────────────
+  {
+    name: "get_context",
+    description: [
+      "⚡ CALL THIS FIRST before any other tool. Returns empirically verified facts about this",
+      "environment: which shell commands actually work, which global tools are available (node,",
+      "python, ffmpeg, whisper, git, curl, wget, etc.), the real working directory, OS, PATH,",
+      "and capability flags. Use this to avoid calling tools that will fail. The context is",
+      "re-probed live each time so it is always accurate.",
+    ].join(" "),
+    inputSchema: { type: "object", properties: {} },
+  },
+
   // ── ENV / PROCESS ──────────────────────────────────────────────────────────
   {
     name: "env_get",
@@ -697,6 +717,189 @@ function getTgToken(args) {
 function getOrCreateBot(token) {
   if (tgBots.has(token)) return tgBots.get(token);
   return null;
+}
+
+// ── Environment probe ─────────────────────────────────────────────────────────
+async function probe(cmd) {
+  try {
+    const { stdout } = await execAsync(cmd, {
+      timeout: 5000,
+      shell: IS_WIN ? true : "/bin/bash",
+      env: process.env,
+    });
+    return stdout.trim() || "ok";
+  } catch {
+    return null;
+  }
+}
+
+async function probeEnvironment() {
+  const IS_WIN = process.platform === "win32";
+
+  // Which command checks a tool is available?
+  const which = IS_WIN ? "where" : "which";
+
+  // Probe all tools in parallel
+  const [
+    nodeVer, npmVer, pythonVer, python3Ver, pipVer,
+    gitVer, curlVer, wgetVer, ffmpegVer, whisperVer,
+    chocVer, wingetVer, pwshVer,
+    shellPath, cwd, whoami, hostname,
+  ] = await Promise.all([
+    probe("node --version"),
+    probe("npm --version"),
+    probe("python --version"),
+    probe("python3 --version"),
+    probe("pip --version"),
+    probe("git --version"),
+    probe("curl --version"),
+    probe("wget --version"),
+    probe("ffmpeg -version"),
+    probe(`${which} whisper`),
+    probe("choco --version"),
+    probe("winget --version"),
+    probe("pwsh --version"),
+    probe(IS_WIN ? "echo %COMSPEC%" : "echo $SHELL"),
+    probe(IS_WIN ? "cd" : "pwd"),
+    probe(IS_WIN ? "whoami" : "whoami"),
+    probe(IS_WIN ? "hostname" : "hostname"),
+  ]);
+
+  // Detect python binary
+  const pythonBin = python3Ver ? "python3" : (pythonVer ? "python" : null);
+
+  // Probe pip packages if python available
+  let pipPackages = null;
+  if (pythonBin) {
+    pipPackages = await probe(`${pythonBin} -m pip list --format=columns 2>/dev/null | head -40`);
+  }
+
+  // Probe npm global packages
+  const npmGlobals = await probe("npm list -g --depth=0 2>/dev/null");
+
+  // Probe PATH
+  const pathVal = process.env.PATH || process.env.Path || "";
+
+  const available = {
+    node:    nodeVer,
+    npm:     npmVer,
+    python:  python3Ver || pythonVer,
+    pip:     pipVer,
+    git:     gitVer,
+    curl:    curlVer ? curlVer.split("\n")[0] : null,
+    wget:    wgetVer ? wgetVer.split("\n")[0] : null,
+    ffmpeg:  ffmpegVer ? ffmpegVer.split("\n")[0] : null,
+    whisper: whisperVer,
+    choco:   chocVer,
+    winget:  wingetVer,
+    pwsh:    pwshVer,
+  };
+
+  const missing = Object.entries(available).filter(([,v]) => !v).map(([k]) => k);
+  const present = Object.entries(available).filter(([,v]) => !!v).map(([k,v]) => ({ tool: k, version: v }));
+
+  const context = {
+    generated_at: new Date().toISOString(),
+    server_version: "2.0.0",
+
+    // ── Host environment ────────────────────────────────────────────────────
+    host: {
+      os: process.platform,
+      arch: process.arch,
+      hostname,
+      whoami,
+      cwd,
+      shell: shellPath,
+      node_version: process.version,
+      is_windows: IS_WIN,
+    },
+
+    // ── What works ──────────────────────────────────────────────────────────
+    tools_available: present,
+    tools_missing: missing,
+
+    // ── Shell guidance ──────────────────────────────────────────────────────
+    shell_guidance: {
+      use_for_commands: IS_WIN ? "cmd.exe via shell tool (shell:true)" : "/bin/bash via shell tool",
+      python_binary: pythonBin,
+      pip_install: pythonBin ? `${pythonBin} -m pip install <pkg>` : null,
+      download_binary_file: curlVer
+        ? `shell: curl -L -o <dest> <url>`
+        : (wgetVer ? `shell: wget -O <dest> <url>` : "web_fetch (text only — binary may corrupt)"),
+      run_python_script: pythonBin ? `code_exec with language=python` : null,
+      run_node_script: nodeVer ? `code_exec with language=node` : null,
+    },
+
+    // ── MCP tool capabilities ───────────────────────────────────────────────
+    mcp_tools: {
+      shell: "✓ Full shell access — use for curl, ffmpeg, whisper, git, etc.",
+      shell_stream: "✓ Long-running commands — use for installs, conversions, transcriptions",
+      fs_read: "✓ Read any file as text",
+      fs_write: "✓ Write any file (binary via base64 not supported — use shell+curl)",
+      fs_list: "✓ List directories",
+      fs_search: "✓ Recursive filename/content search",
+      web_fetch: "✓ HTTP fetch — text/JSON only. For binary files use shell+curl instead.",
+      code_exec: nodeVer || pythonBin ? `✓ Run code: ${[nodeVer && "node", pythonBin && "python", "bash"].filter(Boolean).join(", ")}` : "⚠ No runtimes detected",
+      browser_open: "✓ Headless Chromium (requires: npx playwright install chromium)",
+      db_query: "✓ SQLite SELECT",
+      db_exec: "✓ SQLite INSERT/UPDATE/DELETE/CREATE",
+      notes_write: "✓ Persistent markdown notes",
+      memory_set: "✓ In-process KV (lost on restart — use db_ for persistence)",
+      tg_send: "✓ Telegram send (needs TG_BOT_TOKEN)",
+      tg_listen: "✓ Telegram receive (needs TG_BOT_TOKEN)",
+      smtp_send: "✓ Email (needs SMTP_HOST/USER/PASS env vars)",
+      schedule_add: "✓ Cron jobs",
+      sysinfo: "✓ CPU/RAM/disk/network stats",
+      screenshot: IS_WIN ? "✓ Windows screenshot via PowerShell" : "✓ Screenshot (needs scrot or imagemagick)",
+      clipboard_read: "✓ Read clipboard",
+      clipboard_write: "✓ Write clipboard",
+      notify: "✓ Desktop notification",
+    },
+
+    // ── Common task recipes ─────────────────────────────────────────────────
+    recipes: {
+      download_mp3: curlVer
+        ? `shell({ command: "curl -L -o C:/tmp/file.mp3 \\"<url>\\"" })`
+        : `shell({ command: "Invoke-WebRequest -Uri '<url>' -OutFile 'C:/tmp/file.mp3'" })`,
+      transcribe_audio: whisperVer
+        ? `shell({ command: "whisper C:/tmp/file.mp3 --language en" })`
+        : "whisper not found — install with: pip install openai-whisper",
+      convert_audio: ffmpegVer
+        ? `shell({ command: "ffmpeg -i input.mp3 output.wav" })`
+        : "ffmpeg not found — install with: choco install ffmpeg OR winget install ffmpeg",
+      install_python_pkg: pythonBin
+        ? `shell({ command: "${pythonBin} -m pip install <package>" })`
+        : "python not found in PATH",
+      git_clone: gitVer
+        ? `shell({ command: "git clone <repo> <dir>" })`
+        : "git not found in PATH",
+      run_script: `code_exec({ language: "python", code: "print('hello')" })`,
+      persist_data: `db_exec({ sql: "CREATE TABLE IF NOT EXISTS kv (key TEXT, value TEXT)" })`,
+    },
+
+    // ── Known limitations ───────────────────────────────────────────────────
+    limitations: [
+      "web_fetch returns text only — use shell+curl for binary/MP3/ZIP downloads",
+      "fs_write is text only — binary files must be written via shell commands",
+      "browser tools require: npx playwright install chromium (one-time ~150MB download)",
+      "memory_* is cleared on server restart — use db_* or notes_* for persistence",
+      "smtp_send requires SMTP_HOST, SMTP_USER, SMTP_PASS environment variables",
+      "tg_* requires TG_BOT_TOKEN environment variable or token passed as argument",
+      IS_WIN
+        ? "shell uses cmd.exe on Windows — use PowerShell syntax for advanced ops or pass pwsh -Command '...'"
+        : "shell uses /bin/bash",
+    ].filter(Boolean),
+
+    npm_globals: npmGlobals,
+    pip_packages: pipPackages,
+    path_entries: pathVal.split(IS_WIN ? ";" : ":").filter(Boolean),
+  };
+
+  // Write to disk so the agent can also read it via fs_read
+  const ctxPath = path.join(process.cwd(), "SYSTEM_CONTEXT.json");
+  fs.writeFileSync(ctxPath, JSON.stringify(context, null, 2));
+
+  return context;
 }
 
 // ── Tool implementations ──────────────────────────────────────────────────────
@@ -1212,6 +1415,11 @@ async function callTool(name, args = {}) {
         telegram_bots: tgBots.size,
       };
 
+    // ── CONTEXT ──────────────────────────────────────────────────────────────
+    case "get_context": {
+      return await probeEnvironment();
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -1312,6 +1520,14 @@ const httpServer = http.createServer(async (req, res) => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 await initDb();
+
+// Probe environment at startup and write SYSTEM_CONTEXT.json
+console.log("[boot] probing environment...");
+const bootCtx = await probeEnvironment();
+const presentTools = bootCtx.tools_available.map(t => t.tool).join(", ");
+const missingTools = bootCtx.tools_missing.join(", ");
+console.log(`[boot] available: ${presentTools || "none"}`);
+if (missingTools) console.log(`[boot] missing:   ${missingTools}`);
 
 httpServer.listen(PORT, "127.0.0.1", () => {
   console.log(`
