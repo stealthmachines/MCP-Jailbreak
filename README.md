@@ -54,8 +54,9 @@ After ensuring Developer Mode is ENABLED, you will need to add the following sim
 
 Then, quit out of LM Studio, open it back up, load your model.
 
-From here, add the tool within a given chat using the "+" "attach" button...  You should now see 'local-mcp' among the toolset of your friendly bot.
-<img width="1461" height="1043" alt="image" src="https://github.com/user-attachments/assets/90ea67de-89be-4afc-9db8-b64e1c2d1c32" />
+From here, add the tool within a given chat using button that looks like a hammer at the bottom of chat with bot ...  You should now see 'local-mcp' among the toolset of your friendly bot, which simply needs to be toggle on, or green.
+
+<img width="1008" height="288" alt="image" src="https://github.com/user-attachments/assets/f951db81-fcdd-4309-bd7e-983e911c4082" />
 
 From here, you may need to use a quick prompt to help your bot familiarize itself with the new tools.  I asked my bot about 'local-mcp' and it was utterly confused, but proceeded to list the tool's functions anyway, which we used to latch onto those new hands.  Silly robot.
 
@@ -143,3 +144,5 @@ Returns JSON with server status, uptime, active sessions, and tool list.
 - `shell` runs as whatever user started the server.
 - Listens on `127.0.0.1` only — not exposed to the network by default.
 - To expose on LAN: change `"127.0.0.1"` to `"0.0.0.0"` in `server.js` (last section).
+
+<img width="1461" height="1043" alt="image" src="https://github.com/user-attachments/assets/90ea67de-89be-4afc-9db8-b64e1c2d1c32" />
