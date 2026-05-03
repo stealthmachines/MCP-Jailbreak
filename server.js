@@ -1075,7 +1075,7 @@ async function callPrimitive(name, args = {}) {
     case "memory_delete": delete memory[args.key]; return { deleted: args.key };
     case "env_get":       return { value: process.env[args.key]??null };
     case "env_list":      return { keys: Object.keys(process.env).sort() };
-    case "get_context":   return await probeEnvironment();
+    case "get_context":   return await getEnvCtx() || await probeEnvironment();
     case "process_info":  return { pid: process.pid, cwd: process.cwd(),
                                    uptime_s: Math.round(process.uptime()),
                                    node: process.version, platform: process.platform,
@@ -1272,8 +1272,22 @@ const TOOLS = [
 // HELPERS
 // ═════════════════════════════════════════════════════════════════════════════
 async function probe(cmd) {
-  try { const { stdout } = await execAsync(cmd, { timeout: 4000, shell: IS_WIN ? true : "/bin/bash" }); return stdout.trim()||"ok"; }
-  catch { return null; }
+  // Hard 2-second wall-clock kill — prevents Windows PATH searches from hanging
+  // execAsync timeout alone isn't enough on Windows; the process can outlive it
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 2000);
+    execAsync(cmd, {
+      timeout: 1800,
+      shell: IS_WIN ? true : "/bin/bash",
+      windowsHide: true,  // suppress cmd.exe flash on Windows
+    }).then(({ stdout }) => {
+      clearTimeout(timer);
+      resolve(stdout.trim() || "ok");
+    }).catch(() => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
 }
 
 function shellExec(command, opts = {}) {
@@ -1789,17 +1803,10 @@ const httpServer = http.createServer(async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// BOOT
+// BOOT — listen immediately, everything else is background
 // ═════════════════════════════════════════════════════════════════════════════
-await getDb();  // Init SQLite
 
-console.log("[boot] probing environment...");
-const ctx = await probeEnvironment();
-const have = ctx.tools_available.map(t=>t.tool).join(", ");
-const miss = ctx.tools_missing.join(", ");
-console.log(`[boot] available: ${have}`);
-if (miss) console.log(`[boot] missing:   ${miss}`);
-
+// Start listening FIRST — zero blocking before connections are accepted
 httpServer.listen(PORT, "127.0.0.1", () => {
   console.log(`
 ┌────────────────────────────────────────────────────────┐
@@ -1820,6 +1827,40 @@ httpServer.listen(PORT, "127.0.0.1", () => {
 │  PRIMITIVES: ${TOOLS.length - 2} direct tools available              │
 │  get_context: always call first                        │
 └────────────────────────────────────────────────────────┘`);
+});
+
+// SQLite + env probe both run after listen — never block connections
+let _envCtx = null;
+let _envProbeRunning = false;
+
+async function getEnvCtx() {
+  if (_envCtx) return _envCtx;
+  if (_envProbeRunning) return {
+    status: "probing",
+    note: "Environment probe still running. Call get_context() again in a few seconds.",
+    host: { os: process.platform, is_windows: IS_WIN, node: process.version, cwd: process.cwd() },
+  };
+  return null;
+}
+
+setImmediate(async () => {
+  // Init SQLite in background
+  try { await getDb(); } catch(e) { console.error("[boot] db error:", e.message); }
+
+  // Probe environment in background
+  _envProbeRunning = true;
+  console.log("[boot] probing environment in background...");
+  try {
+    _envCtx = await probeEnvironment();
+    const have = _envCtx.tools_available.map(t => t.tool).join(", ");
+    const miss = _envCtx.tools_missing.join(", ");
+    console.log(`[boot] probe complete. available: ${have}`);
+    if (miss) console.log(`[boot] missing: ${miss}`);
+  } catch (err) {
+    console.error("[boot] probe error:", err.message);
+  } finally {
+    _envProbeRunning = false;
+  }
 });
 
 process.on("SIGINT",  () => { console.log("\n[shutdown]"); saveDb(); process.exit(0); });
