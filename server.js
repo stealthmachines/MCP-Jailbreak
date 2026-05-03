@@ -201,13 +201,13 @@ function analyzeTask(task) {
 
     // Storage signals
     has_save:      /save|write|store|persist|create file|output to/.test(t),
-    has_recall:    /remember|recall|lookup|find in|search|what was/.test(t),
+    has_recall:    /remember|recall|lookup|find in|search|what was|read it back|read back|retrieve it/.test(t),
     has_db:        /database|table|sql|query|insert|record/.test(t),
     has_notes:     /note|notes|remember|journal|log/.test(t),
 
     // Browse signals
     has_browse:    /browse|navigate|click|fill|screenshot|scrape|selenium/.test(t),
-    has_search:    /search for|look up|find on|google/.test(t),
+    has_search:    /search for .*(on|in|at|web|internet|google|site)|look up|find on|google/.test(t),
 
     // Output signals
     has_notify:    /notify|alert|tell me when|ping|message me|telegram|email/.test(t),
@@ -215,7 +215,7 @@ function analyzeTask(task) {
     has_email:     /email|smtp|send mail|mailto/.test(t),
 
     // Complexity signals
-    is_multi_step: /then|after|and then|finally|next|step/.test(t),
+    is_multi_step: /then|after|and then|finally|next|step|and save|and store|and write/.test(t),
     is_question:   /\?|what|how|why|when|where|who/.test(t),
   };
 
@@ -261,6 +261,20 @@ function selectPassSequence(analysis, task) {
     };
   }
 
+  // ── "Browser Quest" ───────────────────────────────────────────────────────
+  // BROWSE → [STORE if save] → RESPOND
+  // Checked before URL-only strategies — browse intent beats fetch intent
+  if (signals.has_browse || signals.has_search) {
+    const passes = [PASS.BROWSE];
+    if (signals.has_save) passes.push(PASS.STORE);
+    passes.push(PASS.RESPOND);
+    return {
+      name: "Browser Quest",
+      passes,
+      hints: ["playwright", signals.has_save ? "save" : null, "summary"].filter(Boolean),
+    };
+  }
+
   // ── "Web Harvest" ─────────────────────────────────────────────────────────
   // FETCH → [CODE if parse needed] → STORE → RESPOND
   if (signals.has_url && signals.has_save) {
@@ -281,16 +295,13 @@ function selectPassSequence(analysis, task) {
     };
   }
 
-  // ── "Browser Quest" ───────────────────────────────────────────────────────
-  // BROWSE → [STORE if save] → RESPOND
-  if (signals.has_browse || signals.has_search) {
-    const passes = [PASS.BROWSE];
-    if (signals.has_save) passes.push(PASS.STORE);
-    passes.push(PASS.RESPOND);
+  // ── "Code and Store" ──────────────────────────────────────────────────────
+  // CODE → STORE → RESPOND  (must be before Shell Strike — more specific)
+  if ((signals.has_code || signals.has_shell) && signals.has_save) {
     return {
-      name: "Browser Quest",
-      passes,
-      hints: ["playwright", signals.has_save ? "save" : null, "summary"].filter(Boolean),
+      name: "Code and Store",
+      passes: [PASS.CODE, PASS.STORE, PASS.RESPOND],
+      hints:  ["compute", "save", "summary"],
     };
   }
 
@@ -314,13 +325,14 @@ function selectPassSequence(analysis, task) {
     };
   }
 
-  // ── "Code and Store" ─────────────────────────────────────────────────────
-  // CODE → STORE → RESPOND
-  if (signals.has_code && signals.has_save) {
+  // ── "Write Then Read" ─────────────────────────────────────────────────────
+  // STORE → RECALL → RESPOND  (write file then read it back)
+  // Must be before Memory River — has_save+has_recall is more specific than has_recall alone
+  if (signals.has_save && (signals.has_recall || signals.has_file_read)) {
     return {
-      name: "Code and Store",
-      passes: [PASS.CODE, PASS.STORE, PASS.RESPOND],
-      hints:  ["compute", "save", "summary"],
+      name: "Write Then Read",
+      passes: [PASS.STORE, PASS.RECALL, PASS.RESPOND],
+      hints:  ["fs_write", "fs_read", "present"],
     };
   }
 
@@ -546,8 +558,22 @@ async function passCode(task, hint, state) {
 async function passStore(task, hint, state) {
   const t = task.toLowerCase();
 
+  // ── Extract path from task — match last /path/file.ext or quoted path ──────
+  // Pattern handles: write "content" to /path/file.txt
+  //                  save output to /path/file.txt
+  //                  write to /path/file.txt
+  const pathInTask = task.match(/(?:to|into|at)\s+["']?(\/?(?:[\w.\-/\\:]+)\.\w+)["']?/i)
+    || task.match(/["'](\/?(?:[\w.\-/\\:]+)\.\w+)["']/);
+
+  // If no data in state but content is in the task string, extract it
   if (!state.data) {
-    return { pass: PASS.STORE, action: "noop", note: "No data in state to store" };
+    const contentMatch = task.match(/write\s+"([^"]+)"/i) || task.match(/write\s+'([^']+)'/i);
+    if (contentMatch) {
+      state.data      = contentMatch[1];
+      state.data_type = "text";
+    } else {
+      return { pass: PASS.STORE, action: "noop", note: "No data in state or task to store" };
+    }
   }
 
   // Notes store
@@ -569,10 +595,9 @@ async function passStore(task, hint, state) {
     return { pass: PASS.STORE, action: "db_exec", key };
   }
 
-  // File write — extract path from task or generate one
-  const pathMatch = task.match(/(?:save|write|output)(?:\s+to)?\s+["']?([^\s"']+\.\w+)["']?/i);
-  const outPath   = pathMatch
-    ? pathMatch[1]
+  // File write — use extracted path or generate one
+  const outPath = pathInTask
+    ? pathInTask[1]
     : path.join(os.tmpdir(), `flow_output_${Date.now()}.txt`);
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
@@ -1492,9 +1517,10 @@ async function probeEnvironment() {
       "Web Harvest":          "FETCH → CODE → STORE → RESPOND",
       "Pure Fetch":           "FETCH → RESPOND",
       "Browser Quest":        "BROWSE → [STORE] → RESPOND",
+      "Code and Store":       "CODE → STORE → RESPOND  (run/execute + save/write — checked before Shell Strike)",
       "Installation Stream":  "SHELL → SHELL → RESPOND",
-      "Shell Strike":         "SHELL → RESPOND",
-      "Code and Store":       "CODE → STORE → RESPOND",
+      "Shell Strike":         "SHELL → RESPOND  (single execution, no save)",
+      "Write Then Read":      "STORE → RECALL → RESPOND  (write file then read it back)",
       "Memory River":         "RECALL → [CODE] → RESPOND",
       "File Read":            "RECALL → RESPOND",
       "Notification Wave":    "[FETCH|SHELL] → NOTIFY → RESPOND",
