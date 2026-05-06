@@ -160,8 +160,8 @@ Returns JSON with server status, uptime, active sessions, and tool list.
 ## Chronological Timeline
 
 ```
-2026-05-04 15:27  state1          ← session snapshot, single server, leanest state
-2026-05-04 16:31  state0          ← session snapshot, single server, knowledge base populated
+2026-05-04 15:27  state0          ← session snapshot, single server, leanest state
+2026-05-04 16:31  state1          ← session snapshot, single server, knowledge base populated
 2026-05-04 17:32  state2          ← session snapshot, single server, cleanup tooling drafted
 2026-05-04 20:47  wuwei-routing   ← v0.4: dual server added, HDGL daemon, no coord-proxy
 2026-05-04 20:47  wuwei-routing_2 ← v0.5: coord-proxy added
@@ -175,9 +175,9 @@ Returns JSON with server status, uptime, active sessions, and tool list.
 
 ---
 
-## state1
+## state0
 
-**Zip:** `state1.zip`  
+**Zip:** `state0.zip`  
 **Snapshot time:** 2026-05-04 ~15:27  
 **Type:** Session snapshot (single server)  
 **Repo version equivalent:** pre-v0.4 baseline
@@ -218,20 +218,20 @@ The earliest captured state. A fresh-ish single-server session where the LLM had
 
 ---
 
-## state0
+## state1
 
-**Zip:** `state0.zip`  
+**Zip:** `state1.zip`  
 **Snapshot time:** 2026-05-04 ~16:31  
 **Type:** Session snapshot (single server)  
 **Repo version equivalent:** pre-v0.4, post-cleanup-protocol run
 
 ### What it is
-Despite the name, state0 is *later* than state1 (the naming is misleading — go by timestamps). The LLM ran a 4-step "Context Clearing Protocol" during this session, compressing its knowledge into a ~1200-token summary and writing it to `notes/MCP_SERVER_v3_knowledge.md`. The session ended mid-flow with the LLM calling `unfold()` on `erl_first_cleanup` — a tool that didn't yet exist in `server.js`.
+The LLM ran a 4-step "Context Clearing Protocol" during this session, compressing its knowledge into a ~1200-token summary and writing it to `notes/MCP_SERVER_v3_knowledge.md`. The session ended mid-flow with the LLM calling `unfold()` on `erl_first_cleanup` — a tool that didn't yet exist in `server.js`.
 
 ### Architecture
-Identical to state1 — single server only.
+Identical to state0 — single server only.
 
-### Key files added vs state1
+### Key files added vs state0
 | File | Purpose |
 |------|---------|
 | `tools_cleanup.js` | ERL cleanup tool skeleton |
@@ -240,7 +240,7 @@ Identical to state1 — single server only.
 | `notes/erl_first_cleanup_tool_guide.md` | Tool guide (written by LLM) |
 
 ### ERL ledger state
-- 6 entries, same branches as state1
+- 6 entries, same branches as state0
 
 ### Context bloat
 | Component | Size |
@@ -265,14 +265,14 @@ Identical to state1 — single server only.
 **Repo version equivalent:** pre-v0.4, cleanup tooling drafted
 
 ### What it is
-The LLM followed through on what state0 started. It generated `tools_erl_cleanup.js`, `erl_cleanup_wrapper.mjs`, and `server.patch`, and wrote 3 additional notes documenting the integration. The audit log shows it repeatedly attempted to patch `server.js` to register `erl_first_cleanup` as a live MCP tool — using `shell`, `fs_read`, `fs_write`, `findstr` — but the patch never landed (`server.js` size is identical to state0/state1). The session ends with the LLM searching for a "robust server patching utility."
+The LLM followed through on what state1 started. It generated `tools_erl_cleanup.js`, `erl_cleanup_wrapper.mjs`, and `server.patch`, and wrote 3 additional notes documenting the integration. The audit log shows it repeatedly attempted to patch `server.js` to register `erl_first_cleanup` as a live MCP tool — using `shell`, `fs_read`, `fs_write`, `findstr` — but the patch never landed (`server.js` size is identical to state0/state1). The session ends with the LLM searching for a "robust server patching utility."
 
 **Known bug:** `server.patch` uses `require()` syntax inside an ES module context — it would throw `ReferenceError: require is not defined` if applied and called.
 
 ### Architecture
 Identical to state0/state1 — single server only.
 
-### Key files added vs state0
+### Key files added vs state1
 | File | Purpose |
 |------|---------|
 | `tools_erl_cleanup.js` | Standalone cleanup tool implementation |
@@ -590,8 +590,8 @@ Identical to v0.8–v0.10 — **129 KB**
 
 | Zip | Version | Single Server | Dual Server | Coord Proxy | HDGL Daemon | launch.mjs | install.mjs | Demo Scripts | Multi-bot Prompt | Context Bloat |
 |-----|---------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---:|
-| state1 | pre-v0.4 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 57 KB |
-| state0 | pre-v0.4 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 66 KB |
+| state0 | pre-v0.4 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 57 KB |
+| state1 | pre-v0.4 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 66 KB |
 | state2 | pre-v0.4 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 79 KB |
 | wuwei-routing | v0.4 | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | 107 KB |
 | wuwei-routing_2 | v0.5 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | 107 KB |
@@ -608,8 +608,8 @@ Identical to v0.8–v0.10 — **129 KB**
 
 | Zip | Entries | Branches |
 |-----|---------|----------|
-| state1 | 6 | session_context, task_analysis, conversation_absorption_05_04 |
 | state0 | 6 | session_context, task_analysis, conversation_absorption_05_04 |
+| state1 | 6 | session_context, task_analysis, conversation_absorption_05_04 |
 | state2 | 6 | session_context, task_analysis, conversation_absorption_05_04 |
 | wuwei-routing | 6 | session_context, task_analysis, conversation_absorption_05_04 |
 | wuwei-routing_2 | 6 | session_context, task_analysis, conversation_absorption_05_04 |
@@ -628,7 +628,7 @@ Identical to v0.8–v0.10 — **129 KB**
 → `state1` + `npm install && node server.js`
 
 **I want single-server with knowledge base pre-loaded**
-→ `state0` — compressed knowledge base already in `notes/MCP_SERVER_v3_knowledge.md`
+→ `state1` — compressed knowledge base already in `notes/MCP_SERVER_v3_knowledge.md`
 
 **I want dual-LLM but already have LM Studio + model running**
 → `twin-flames5` (v0.10) — `node launch.mjs`, cleanest dual-server startup
