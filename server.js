@@ -61,6 +61,7 @@ import path       from "path";
 import os         from "os";
 import { promisify } from "util";
 import { createRequire } from "module";
+import crypto     from "crypto";
 
 const require    = createRequire(import.meta.url);
 const execAsync  = promisify(exec);
@@ -68,7 +69,156 @@ const PORT       = parseInt(process.env.MCP_PORT   || "3333");
 const LOG_FILE   = process.env.MCP_LOG    || path.join(process.cwd(), "mcp-audit.log");
 const DB_FILE    = process.env.MCP_DB     || path.join(process.cwd(), "mcp-data.db");
 const NOTES_DIR  = process.env.MCP_NOTES  || path.join(process.cwd(), "notes");
+const LEDGER_FILE= process.env.MCP_LEDGER || path.join(process.cwd(), "erl-ledger.json");
 const IS_WIN     = process.platform === "win32";
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ELEGANT RECURSIVE LEDGER  —  ERL V3 (JS port)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   Inspired by stealthmachines/ElegantRecursiveLedger (Java)
+//   Ported to Node.js and integrated as a first-class MCP primitive group.
+//
+//   Each entry is hash-chained to its parent (like git commits).
+//   Branches diverge from any entry; HEAD tracks the tip of each branch.
+//   The entire ledger is persisted to erl-ledger.json on every write.
+//   Verification walks the full chain and checks every hash.
+//
+//   ENTRY SCHEMA:
+//     id          — SHA-256 of (parentHash + timestamp + branch + content)
+//     parentId    — previous entry id on this branch (null = genesis)
+//     branch      — branch name string
+//     timestamp   — ISO string
+//     role        — "thought" | "observation" | "result" | "plan" | "error" | "context"
+//     content     — arbitrary string (the actual scratchpad data)
+//     tags        — string[] for indexing
+//     sessionId   — optional session identifier
+//
+//   LEDGER SCHEMA (erl-ledger.json):
+//     version     — "3.0"
+//     entries     — { [id]: Entry }
+//     branches    — { [name]: id }  ← HEAD of each branch
+//     created_at  — ISO string
+//
+// ═════════════════════════════════════════════════════════════════════════════
+
+const ERL_VERSION = "3.0";
+
+function erlHash(parentId, timestamp, branch, content) {
+  return crypto
+    .createHash("sha256")
+    .update(`${parentId ?? ""}::${timestamp}::${branch}::${content}`)
+    .digest("hex");
+}
+
+function erlLoad() {
+  if (fs.existsSync(LEDGER_FILE)) {
+    try { return JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")); } catch {}
+  }
+  return {
+    version:    ERL_VERSION,
+    created_at: new Date().toISOString(),
+    entries:    {},
+    branches:   { main: null },
+  };
+}
+
+function erlSave(ledger) {
+  fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
+}
+
+// Append an entry to a branch, returns the new entry
+function erlAppend(ledger, { branch = "main", role = "thought", content, tags = [], sessionId = null }) {
+  if (!branch || typeof branch !== "string") throw new Error("branch required");
+  if (!content) throw new Error("content required");
+
+  const parentId  = ledger.branches[branch] ?? null;
+  const timestamp = new Date().toISOString();
+  const id        = erlHash(parentId, timestamp, branch, content);
+
+  const entry = { id, parentId, branch, timestamp, role, content, tags, sessionId };
+  ledger.entries[id] = entry;
+  ledger.branches[branch] = id;
+  erlSave(ledger);
+  return entry;
+}
+
+// Create a new branch diverging from a specific entry (or HEAD of source branch)
+function erlBranch(ledger, { name, from_branch = "main", from_id = null }) {
+  if (!name) throw new Error("branch name required");
+  if (ledger.branches[name] !== undefined) throw new Error(`branch '${name}' already exists`);
+
+  const startId = from_id || ledger.branches[from_branch] || null;
+  ledger.branches[name] = startId;
+  erlSave(ledger);
+  return { branch: name, diverged_from: startId };
+}
+
+// Walk the chain backwards from a tip entry, return ordered history
+function erlHistory(ledger, { branch = "main", limit = 50 }) {
+  const tip = ledger.branches[branch];
+  if (!tip) return [];
+  const chain = [];
+  let cur = ledger.entries[tip];
+  while (cur && chain.length < limit) {
+    chain.push(cur);
+    cur = cur.parentId ? ledger.entries[cur.parentId] : null;
+  }
+  return chain; // newest first
+}
+
+// Full cryptographic verification of a branch chain
+function erlVerify(ledger, branch = "main") {
+  const history = erlHistory(ledger, { branch, limit: Infinity });
+  const errors  = [];
+  for (const entry of history) {
+    const expected = erlHash(entry.parentId, entry.timestamp, entry.branch, entry.content);
+    if (expected !== entry.id) {
+      errors.push({ id: entry.id, expected, note: "hash mismatch — chain tampered" });
+    }
+  }
+  return { branch, length: history.length, valid: errors.length === 0, errors };
+}
+
+// Full-text search across all entries
+function erlSearch(ledger, { query, branch = null, role = null, tags = [], limit = 20 }) {
+  const re = new RegExp(query, "i");
+  return Object.values(ledger.entries)
+    .filter(e => {
+      if (branch && e.branch !== branch) return false;
+      if (role   && e.role   !== role)   return false;
+      if (tags.length && !tags.every(t => e.tags.includes(t))) return false;
+      return re.test(e.content) || e.tags.some(t => re.test(t));
+    })
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, limit);
+}
+
+// Merge: replay entries from source branch onto target (linear, not diff-merge)
+function erlMerge(ledger, { from_branch, into_branch = "main" }) {
+  const sourceHistory = erlHistory(ledger, { branch: from_branch, limit: Infinity }).reverse();
+  const merged = [];
+  for (const src of sourceHistory) {
+    const entry = erlAppend(ledger, {
+      branch:    into_branch,
+      role:      src.role,
+      content:   `[merged from ${from_branch}] ${src.content}`,
+      tags:      [...src.tags, `merged_from:${from_branch}`],
+      sessionId: src.sessionId,
+    });
+    merged.push(entry.id);
+  }
+  return { merged_count: merged.length, into: into_branch, ids: merged };
+}
+
+// In-memory ledger handle (loaded once, saved on every write)
+let _ledger = null;
+function getLedger() {
+  if (!_ledger) _ledger = erlLoad();
+  return _ledger;
+}
+
+
 
 fs.mkdirSync(NOTES_DIR, { recursive: true });
 
@@ -983,6 +1133,8 @@ async function callPrimitive(name, args = {}) {
     }
     case "http_serve": {
       if (fileServers.has(args.port)) throw new Error("Port in use");
+// Initialize ERL ledger on server startup
+await erlStandardInit();
       const srv = http.createServer((req,res) => {
         fs.readFile(path.join(args.directory, req.url==="/"?"index.html":req.url),(err,data)=>{
           if (err) { res.writeHead(404); res.end("Not found"); return; }
@@ -1865,3 +2017,61 @@ setImmediate(async () => {
 
 process.on("SIGINT",  () => { console.log("\n[shutdown]"); saveDb(); process.exit(0); });
 process.on("SIGTERM", () => { saveDb(); process.exit(0); });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ERL STANDARD INITIALIZATION — Ensures clean session structure on startup
+// ═════════════════════════════════════════════════════════════════════════════
+async function erlStandardInit() {
+  const ledger = getLedger();
+
+  // Only initialize if session_context branch doesn't exist
+  if (!ledger.branches["session_context"]) {
+    console.log("[ERL] Initializing standard session structure...");
+
+    // Create session_context branch (diverges from genesis)
+    erlBranch(ledger, {
+      name: "session_context"
+    });
+
+    // Add foundational entry about the MCP server itself
+    const serverIntro = `
+# MCP Server Initialized — ${new Date().toISOString()}
+- Server: local-mcp v3.0.0 (Wu-Wei Unfold Architecture)
+- SSE Endpoint: http://localhost:${PORT}/sse
+- Ledger: ERL v3 (Elegant Recursive Ledger)
+- Persistence: SQLite (${DB_FILE}), Notes (${NOTES_DIR}), Ledger (${LEDGER_FILE})
+- Key Principle: "Flow like a river, not like a dam"
+`;
+
+    erlAppend(ledger, {
+      branch: "session_context",
+      role: "context",
+      content: serverIntro,
+      tags: ["server_initialized", "mcp_v3", "wu_wei_unfold"]
+    });
+
+    // Add a system entry about the session
+    erlAppend(ledger, {
+      branch: "session_context",
+      role: "system",
+      content: `Session started. Ready for tasks. Use 'session_context' branch for core knowledge and 'task_*' branches for specific work. Merge completed tasks back to maintain clean context.`,
+      tags: ["session_start", "guidance"]
+    });
+
+    console.log("[ERL] ✓ Session context initialized with 2 foundational entries");
+  } else {
+    console.log("[ERL] ✓ Session context already exists (skipping initialization)");
+  }
+
+  // Verify integrity
+  const verification = erlVerify(ledger, "session_context");
+  if (!verification.valid) {
+    console.error("[ERL] ✗ Ledger integrity check FAILED!");
+    console.error(verification.errors);
+  } else {
+    console.log("[ERL] ✓ Ledger integrity verified");
+  }
+
+  return ledger;
+}
+
