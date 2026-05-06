@@ -641,4 +641,7 @@ Identical to v0.8–v0.10 — **129 KB**
 
 ---
 
+Context Bloat Ranking (Leanest → Heaviest)
+RankVersionTotal Persistent StateAudit LogERL LedgerSystem ContextNotes🥇 1state057 KB10 KB9 KB31 KB5 KB / 2 files2state166 KB12 KB9 KB31 KB13 KB / 5 files3state279 KB20 KB9 KB31 KB18 KB / 8 files4wuwei-routing (v0.4)107 KB22 KB9 KB31 KB44 KB / 12 files4wuwei-routing__2_ (v0.5)107 KB22 KB9 KB31 KB44 KB / 12 files4twin-flames (v0.6)107 KB22 KB9 KB31 KB44 KB / 12 files4twin-flames2 (v0.7)107 KB22 KB9 KB31 KB44 KB / 12 files🔴 8twin-flames3 (v0.8)129 KB31 KB24 KB27 KB44 KB / 12 files🔴 8twin-flames4 (v0.9)129 KB31 KB24 KB27 KB44 KB / 12 files🔴 8twin-flames5 (v0.10)129 KB31 KB24 KB27 KB44 KB / 12 files🔴 8pre-easy (v0.11)129 KB31 KB24 KB27 KB44 KB / 12 files
+
 *Generated from zip inspection — all sizes and timestamps derived from archive metadata and internal file content.*
