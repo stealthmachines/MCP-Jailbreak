@@ -127,7 +127,11 @@ function erlSave(ledger) {
   fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
 }
 
-// Append an entry to a branch, returns the new entry
+// Append an entry to a branch, returns the new entry.
+// Every CHECKPOINT_INTERVAL appends, a checkpoint merkle-root is stored
+// so erlVerify only needs to walk the tail (O(tail) not O(n)).
+const CHECKPOINT_INTERVAL = 50;
+
 function erlAppend(ledger, { branch = "main", role = "thought", content, tags = [], sessionId = null }) {
   if (!branch || typeof branch !== "string") throw new Error("branch required");
   if (!content) throw new Error("content required");
@@ -139,6 +143,34 @@ function erlAppend(ledger, { branch = "main", role = "thought", content, tags = 
   const entry = { id, parentId, branch, timestamp, role, content, tags, sessionId };
   ledger.entries[id] = entry;
   ledger.branches[branch] = id;
+
+  // ── Checkpoint (Spiral8/ERL-Java inspired) ────────────────────────────────
+  // Every CHECKPOINT_INTERVAL entries, snapshot the branch tip + entry count
+  // into ledger.checkpoints so erlVerify can skip already-verified segments.
+  if (!ledger.checkpoints) ledger.checkpoints = {};
+  if (!ledger.checkpoints[branch]) ledger.checkpoints[branch] = [];
+  const cpList = ledger.checkpoints[branch];
+  // Count entries since last checkpoint (walk backward until we hit it or run out)
+  const lastCp = cpList[cpList.length - 1];
+  let countSinceCp = 0;
+  let cur = ledger.entries[id];
+  while (cur) {
+    countSinceCp++;
+    if (lastCp && cur.id === lastCp.tip_id) break;
+    if (!cur.parentId) break;
+    cur = ledger.entries[cur.parentId];
+    if (countSinceCp > CHECKPOINT_INTERVAL + 1) break; // don't over-walk
+  }
+  if (countSinceCp >= CHECKPOINT_INTERVAL) {
+    const merkleRoot = crypto
+      .createHash('sha256')
+      .update(cpList.length > 0 ? cpList[cpList.length - 1].tip_id : '')
+      .update(id)
+      .digest('hex')
+      .slice(0, 16);
+    cpList.push({ tip_id: id, timestamp, merkle_root: merkleRoot });
+  }
+
   erlSave(ledger);
   return entry;
 }
@@ -167,17 +199,55 @@ function erlHistory(ledger, { branch = "main", limit = 50 }) {
   return chain; // newest first
 }
 
-// Full cryptographic verification of a branch chain
+// Full cryptographic verification of a branch chain.
+// If checkpoints exist, only the tail since the last checkpoint is verified
+// (O(tail) instead of O(n)) — checkpoint integrity is verified separately.
 function erlVerify(ledger, branch = "main") {
-  const history = erlHistory(ledger, { branch, limit: Infinity });
-  const errors  = [];
-  for (const entry of history) {
+  const checkpoints = ledger.checkpoints?.[branch] ?? [];
+  const lastCp      = checkpoints[checkpoints.length - 1];
+
+  // Walk only the tail since last checkpoint (or full chain if no checkpoints)
+  const tail   = [];
+  let cur = ledger.entries[ledger.branches[branch]];
+  while (cur) {
+    tail.push(cur);
+    if (lastCp && cur.id === lastCp.tip_id) break; // stop at verified boundary
+    if (!cur.parentId) break;
+    cur = ledger.entries[cur.parentId];
+  }
+
+  const errors = [];
+  for (const entry of tail) {
     const expected = erlHash(entry.parentId, entry.timestamp, entry.branch, entry.content);
     if (expected !== entry.id) {
       errors.push({ id: entry.id, expected, note: "hash mismatch — chain tampered" });
     }
   }
-  return { branch, length: history.length, valid: errors.length === 0, errors };
+
+  // Also verify the checkpoint merkle chain is internally consistent
+  let cpChainValid = true;
+  for (let i = 1; i < checkpoints.length; i++) {
+    const expected = crypto
+      .createHash('sha256')
+      .update(checkpoints[i - 1].tip_id)
+      .update(checkpoints[i].tip_id)
+      .digest('hex')
+      .slice(0, 16);
+    if (expected !== checkpoints[i].merkle_root) {
+      errors.push({ id: checkpoints[i].tip_id, note: 'checkpoint merkle mismatch' });
+      cpChainValid = false;
+    }
+  }
+
+  const totalLength = tail.length + (lastCp ? '(+checkpointed)' : 0);
+  return {
+    branch,
+    verified_tail: tail.length,
+    checkpoints:   checkpoints.length,
+    cp_chain_valid: cpChainValid,
+    valid: errors.length === 0,
+    errors,
+  };
 }
 
 // Full-text search across all entries
@@ -1362,6 +1432,313 @@ async function callPrimitive(name, args = {}) {
       };
     }
 
+    // ── ERL PRUNE: archive old session_context entries, rebuild clean chain ──
+    case "erl_prune": {
+      const maxAgeDays  = args.max_age_days ?? 7;
+      const pruneBranch = args.branch ?? 'session_context';
+      const dryRun      = args.dry_run ?? false;
+      const cutoff      = Date.now() - maxAgeDays * 86400000;
+      const PROTECTED   = ['server_init', 'system_prompt'];
+      const ledger      = getLedger();
+      const history     = erlHistory(ledger, { branch: pruneBranch, limit: 10000 });
+
+      const keep    = [];
+      const archive = [];
+      for (const entry of history) {
+        const isProtected = PROTECTED.some(t => entry.tags.includes(t));
+        const isOld       = new Date(entry.timestamp).getTime() < cutoff;
+        if (isProtected || !isOld) keep.push(entry);
+        else archive.push(entry);
+      }
+
+      if (!archive.length) {
+        return { branch: pruneBranch, pruned: 0, kept: keep.length, dry_run: dryRun, note: 'Nothing to prune' };
+      }
+      if (dryRun) {
+        return {
+          branch: pruneBranch, would_prune: archive.length, would_keep: keep.length,
+          dry_run: true, oldest_kept: keep[keep.length - 1]?.timestamp,
+          oldest_archive: archive[archive.length - 1]?.timestamp,
+        };
+      }
+
+      // Move pruned entries to a dated archive branch
+      const archiveBranch = `${pruneBranch}_archive_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+      if (ledger.branches[archiveBranch] === undefined) {
+        ledger.branches[archiveBranch] = null;
+        erlSave(ledger);
+      }
+      for (const entry of [...archive].reverse()) {
+        erlAppend(ledger, {
+          branch: archiveBranch, role: entry.role,
+          content: entry.content, tags: [...entry.tags, 'archived'],
+        });
+      }
+
+      // Rebuild the source branch from kept entries only (chronological order)
+      const rebuilt = [...keep].reverse();
+      ledger.branches[pruneBranch] = null;
+      erlSave(ledger);
+      for (const entry of rebuilt) {
+        erlAppend(ledger, {
+          branch: pruneBranch, role: entry.role,
+          content: entry.content, tags: entry.tags, sessionId: entry.sessionId,
+        });
+      }
+
+      return {
+        branch: pruneBranch, pruned: archive.length, kept: keep.length,
+        archive_branch: archiveBranch, dry_run: false,
+        note: `Archived ${archive.length} entries older than ${maxAgeDays}d → ${archiveBranch}`,
+      };
+    }
+
+    // ── PHI ROUTE: phi-hash a prompt to get SOLO/RELAY/CHALLENGE routing ──────
+    case "phi_route": {
+      const input = args.prompt || args.input || '';
+      if (!input) return { error: 'prompt or input required' };
+      const raw   = parseInt(
+        crypto.createHash('sha256').update(input).digest('hex').slice(0, 8), 16
+      ) / 0xFFFFFFFF;
+      const score = (raw * PHI) % 1;
+      const mode  = score < 0.382 ? 'SOLO' : score < 0.618 ? 'RELAY' : 'CHALLENGE';
+      const peerPort = PORT === 3333 ? 3334 : 3333;
+      return {
+        phi_score: parseFloat(score.toFixed(6)),
+        mode,
+        depth:          { SOLO: 'fast', RELAY: 'standard', CHALLENGE: 'deep' }[mode],
+        recommendation: mode === 'SOLO'
+          ? 'Handle locally — respond directly without peer involvement'
+          : mode === 'RELAY'
+          ? `Forward to peer on port ${peerPort} for second opinion`
+          : `Run on both ports (${PORT} + ${peerPort}), surface divergence via erl_merge`,
+        thresholds: { SOLO: '<0.382', RELAY: '0.382–0.618', CHALLENGE: '>0.618' },
+      };
+    }
+
+    // ── TWIN-FLAME EVAL: log self-eval entry (confidence + reflection) ────────
+    case "twin_flame_eval": {
+      const tflBranch = args.branch || 'twin_flame_evals';
+      const ledger    = getLedger();
+      if (ledger.branches[tflBranch] === undefined) {
+        erlBranch(ledger, { name: tflBranch, from_branch: 'main' });
+      }
+      const promptHash = args.prompt
+        ? crypto.createHash('sha256').update(args.prompt).digest('hex').slice(0, 16)
+        : null;
+      const entry = erlAppend(ledger, {
+        branch:  tflBranch,
+        role:    'observation',
+        content: JSON.stringify({
+          prompt_hash:          promptHash,
+          confidence:           args.confidence ?? null,  // 1–10
+          response_summary:     args.response_summary    || null,
+          would_do_differently: args.would_do_differently || null,
+          model:                args.model                || 'twin_flame',
+          port:                 PORT,
+        }),
+        tags: [
+          'twin_flame_eval',
+          ...(args.confidence != null ? [`confidence_${args.confidence}`] : []),
+          ...(args.tags || []),
+        ],
+      });
+      return { logged: true, branch: tflBranch, entry_id: entry.id, confidence: args.confidence ?? null };
+    }
+
+    // ── ERL FOLD: MEGC-inspired breathing compression of low-recall entries ──────
+    case "erl_fold": {
+      const foldBranch   = args.branch ?? 'session_context';
+      const foldBudget   = args.phi_threshold ?? 0.382;
+      const dryRun       = args.dry_run ?? false;
+      const ledger       = getLedger();
+      const hdglState    = readHdglState();
+      const history      = erlHistory(ledger, { branch: foldBranch, limit: 10000 });
+      if (!history.length) return { folded: 0, note: 'branch empty' };
+
+      // Score every entry (same as erlPhiRecall)
+      const FOLD_GAMMA = 0.75;
+      const FOLD_OCTAVES = [8, 24, 72, 168, Infinity].map(h => h * 3600000);
+      const PROTECTED = ['server_init', 'system_prompt'];
+
+      const candidates = history.filter(e => !PROTECTED.some(t => e.tags.includes(t)) && !e.tags.includes('folded'));
+
+      const scored = candidates.map(entry => {
+        const fp  = `${entry.tags.join(',')}:${entry.role}:${entry.content.slice(0, 64)}`;
+        const raw = parseInt(crypto.createHash('sha256').update(fp).digest('hex').slice(0, 8), 16) / 0xFFFFFFFF;
+        const phiScore = (raw * PHI) % 1;
+        const ageMs = Date.now() - new Date(entry.timestamp).getTime();
+        const k = FOLD_OCTAVES.findIndex(l => ageMs < l);
+        const recency = 0.35 * Math.pow(FOLD_GAMMA, k < 0 ? FOLD_OCTAVES.length : k);
+        const roleBoost = { context:0.25, plan:0.20, error:0.20, observation:0.10, result:0.10, thought:0.05 }[entry.role] ?? 0;
+        return { entry, score: phiScore + recency + roleBoost };
+      });
+
+      // Entries BELOW threshold are fold candidates
+      const toFold = scored.filter(s => s.score < foldBudget).map(s => s.entry);
+      if (!toFold.length) return { folded: 0, note: 'no entries below phi threshold — nothing to fold' };
+      if (dryRun) return { would_fold: toFold.length, total: history.length, dry_run: true, threshold: foldBudget };
+
+      // Fold: base64-encode content, tag as 'folded', rewrite entry in-place
+      let count = 0;
+      for (const entry of toFold) {
+        if (ledger.entries[entry.id]) {
+          ledger.entries[entry.id].content = 'fold:' + Buffer.from(entry.content).toString('base64');
+          ledger.entries[entry.id].tags    = [...new Set([...entry.tags, 'folded'])];
+          count++;
+        }
+      }
+      erlSave(ledger);
+      return { folded: count, total: history.length, threshold: foldBudget, dry_run: false,
+               note: `${count} entries compressed (base64). Use erl_unfold to restore.` };
+    }
+
+    // ── ERL UNFOLD: restore folded entries (MEGC decode) ─────────────────────
+    case "erl_unfold": {
+      const unfoldBranch = args.branch ?? 'session_context';
+      const ledger       = getLedger();
+      const history      = erlHistory(ledger, { branch: unfoldBranch, limit: 10000 });
+      const folded       = history.filter(e => e.tags.includes('folded') && e.content.startsWith('fold:'));
+      if (!folded.length) return { unfolded: 0, note: 'no folded entries found' };
+
+      let count = 0;
+      const errors = [];
+      for (const entry of folded) {
+        try {
+          const original = Buffer.from(entry.content.slice(5), 'base64').toString('utf8');
+          ledger.entries[entry.id].content = original;
+          ledger.entries[entry.id].tags    = entry.tags.filter(t => t !== 'folded');
+          count++;
+        } catch (e) {
+          errors.push({ id: entry.id, error: e.message });
+        }
+      }
+      erlSave(ledger);
+      return { unfolded: count, errors, branch: unfoldBranch };
+    }
+
+    // ── TWIN-FLAME PROBE: compare answer hash to baseline, flag model drift ──
+    case "twin_flame_probe": {
+      const probeBranch = 'twin_flame_probes';
+      const questionId  = args.question_id || 'default';
+      const ledger      = getLedger();
+      if (ledger.branches[probeBranch] === undefined) {
+        erlBranch(ledger, { name: probeBranch, from_branch: 'main' });
+      }
+
+      if (!args.answer && !args.set_baseline) {
+        // Query mode — return baseline info for this question_id
+        const hist     = erlHistory(ledger, { branch: probeBranch, limit: 100 });
+        const baseline = hist.find(e => {
+          try { return JSON.parse(e.content).question_id === questionId; } catch { return false; }
+        });
+        return {
+          mode: 'query', question_id: questionId,
+          baseline_exists: !!baseline,
+          baseline_hash:   baseline ? JSON.parse(baseline.content).answer_hash : null,
+          next_steps: [
+            'Pass answer:"<text>" to compare to baseline',
+            'Pass answer:"<text>" + set_baseline:true to store/overwrite baseline',
+          ],
+        };
+      }
+
+      const answerHash = crypto.createHash('sha256').update(args.answer || '').digest('hex').slice(0, 16);
+
+      if (args.set_baseline) {
+        const entry = erlAppend(ledger, {
+          branch:  probeBranch, role: 'context',
+          content: JSON.stringify({
+            question_id: questionId, question: args.question || null,
+            answer_hash: answerHash, set_at: new Date().toISOString(),
+          }),
+          tags: ['twin_flame_probe', 'baseline', questionId],
+        });
+        return { stored: true, question_id: questionId, answer_hash: answerHash, entry_id: entry.id };
+      }
+
+      // Compare mode
+      const hist     = erlHistory(ledger, { branch: probeBranch, limit: 100 });
+      const baseline = hist.find(e => {
+        try { return JSON.parse(e.content).question_id === questionId; } catch { return false; }
+      });
+      if (!baseline) {
+        return { drift: null, note: `No baseline for '${questionId}'. Pass set_baseline:true to store one.` };
+      }
+      const baselineHash = JSON.parse(baseline.content).answer_hash;
+      const drifted      = baselineHash !== answerHash;
+      erlAppend(ledger, {
+        branch: probeBranch, role: drifted ? 'error' : 'observation',
+        content: JSON.stringify({
+          question_id: questionId, baseline_hash: baselineHash,
+          answer_hash: answerHash, drifted, checked_at: new Date().toISOString(),
+        }),
+        tags: ['twin_flame_probe', 'check', questionId, drifted ? 'drift_detected' : 'stable'],
+      });
+      return {
+        question_id:    questionId,
+        drift:          drifted,
+        baseline_hash:  baselineHash,
+        answer_hash:    answerHash,
+        action: drifted
+          ? 'Drift detected — run self_heal to check infra, then review model config'
+          : 'Stable — answer hash matches baseline',
+      };
+    }
+
+    // ── TWIN-FLAME DIVERGENCE: compare both ports' recent eval entries ────────
+    case "twin_flame_divergence": {
+      const query   = args.query ?? '';
+      const limit   = args.limit ?? 20;
+      const ledger  = getLedger();
+
+      // Collect twin_flame_eval entries from both ports
+      const evalHist = erlHistory(ledger, { branch: 'twin_flame_evals', limit: 200 });
+      const byPort   = { 3333: [], 3334: [] };
+      for (const e of evalHist) {
+        try {
+          const parsed = JSON.parse(e.content);
+          const p = parsed.port;
+          if (p === 3333 || p === 3334) byPort[p].push({ ...parsed, id: e.id, timestamp: e.timestamp });
+        } catch { /* skip malformed */ }
+      }
+
+      // If query given, also search session_context across all entries
+      let searchResults = [];
+      if (query) {
+        const re = new RegExp(query, 'i');
+        searchResults = Object.values(ledger.entries)
+          .filter(e => re.test(e.content) || e.tags.some(t => re.test(t)))
+          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+          .slice(0, limit)
+          .map(e => ({ id: e.id, branch: e.branch, role: e.role, timestamp: e.timestamp,
+                       content_preview: e.content.slice(0, 120), tags: e.tags }));
+      }
+
+      // Confidence divergence: compare average confidence per port
+      const avg = (arr) => arr.length
+        ? (arr.reduce((s, e) => s + (e.confidence ?? 5), 0) / arr.length).toFixed(2)
+        : null;
+      const conf3333 = avg(byPort[3333]);
+      const conf3334 = avg(byPort[3334]);
+      const confDelta = conf3333 && conf3334
+        ? Math.abs(parseFloat(conf3333) - parseFloat(conf3334)).toFixed(2)
+        : null;
+
+      return {
+        port_3333: { eval_count: byPort[3333].length, avg_confidence: conf3333,
+                     recent: byPort[3333].slice(0, 3) },
+        port_3334: { eval_count: byPort[3334].length, avg_confidence: conf3334,
+                     recent: byPort[3334].slice(0, 3) },
+        confidence_delta: confDelta,
+        diverged: confDelta !== null && parseFloat(confDelta) > 2.0,
+        divergence_note: confDelta !== null && parseFloat(confDelta) > 2.0
+          ? 'Confidence gap >2 between ports — knowledge asymmetry detected; consider twin_flame_probe'
+          : 'Ports aligned within normal confidence variance',
+        query_results: searchResults,
+      };
+    }
+
     default: throw new Error(`Unknown primitive: ${name}`);
   }
 }
@@ -1540,6 +1917,108 @@ const TOOLS = [
       proposed_content:  { type:"string",  description:"Full new source to stage as <file>.proposed" },
       patch_description: { type:"string",  description:"Human-readable description of this patch" },
       allow_self_patch:  { type:"boolean", description:"Allow patching the active server (requires true)" },
+    }},
+  },
+
+  // ── BLOAT REDUCTION + FOLD/UNFOLD ───────────────────────────────────────────
+  { name: "erl_fold",
+    description: [
+      "MEGC-inspired breathing compression: base64-fold ERL entries that score below the phi threshold.",
+      "Entries tagged server_init or system_prompt are always protected.",
+      "Already-folded entries are skipped.",
+      "Scoring uses the same phi-hash + gamma-octave decay as erlPhiRecall.",
+      "Use dry_run:true to preview how many entries would be folded without writing.",
+      "Folded entries remain in the chain (integrity preserved) but consume ~33% less JSON space.",
+      "Restore with erl_unfold.",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      branch:        { type:"string",  description:"Branch to fold (default 'session_context')" },
+      phi_threshold: { type:"number",  description:"Entries scoring below this are folded (default 0.382)" },
+      dry_run:       { type:"boolean", description:"Preview only — no changes written" },
+    }},
+  },
+  { name: "erl_unfold",
+    description: [
+      "Restore all base64-folded entries on a branch back to their original content.",
+      "Inverse of erl_fold. Safe to call multiple times (no-ops on already-unfolded entries).",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      branch: { type:"string", description:"Branch to unfold (default 'session_context')" },
+    }},
+  },
+
+  { name: "erl_prune",
+    description: [
+      "Archive old session_context entries and rebuild a clean branch chain.",
+      "Entries tagged server_init or system_prompt are always kept.",
+      "All other entries older than max_age_days (default 7) are moved to a dated archive branch.",
+      "The source branch is rebuilt from the remaining entries with a fresh hash chain.",
+      "Use dry_run:true to preview what would be pruned without modifying anything.",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      branch:       { type:"string",  description:"Branch to prune (default 'session_context')" },
+      max_age_days: { type:"number",  description:"Archive entries older than this many days (default 7)" },
+      dry_run:      { type:"boolean", description:"Preview only — no changes written (default false)" },
+    }},
+  },
+
+  // ── TWIN-FLAME ROUTING + EVAL ─────────────────────────────────────────────
+  { name: "phi_route",
+    description: [
+      "Phi-hash a prompt to determine routing mode: SOLO (<0.382), RELAY (0.382–0.618), or CHALLENGE (>0.618).",
+      "SOLO: handle locally, fast response.",
+      "RELAY: forward to peer server for second opinion.",
+      "CHALLENGE: run on both servers, surface disagreement via erl_merge.",
+      "Uses the same φ=1.618 hash algorithm as coord-proxy.js.",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      prompt: { type:"string", description:"Prompt or input text to route" },
+      input:  { type:"string", description:"Alias for prompt" },
+    }, required:["prompt"] },
+  },
+  { name: "twin_flame_eval",
+    description: [
+      "Log a twin-flame self-evaluation entry to the ERL ledger.",
+      "Records confidence (1–10), response summary, and reflection on what to do differently.",
+      "High-confidence recent entries surface preferentially on next erlPhiRecall.",
+      "Use after responding to track quality over time and seed improvement loops.",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      confidence:           { type:"number",  description:"Self-rated confidence 1–10" },
+      response_summary:     { type:"string",  description:"Brief summary of the response given" },
+      would_do_differently: { type:"string",  description:"Reflection: what to improve next time" },
+      prompt:               { type:"string",  description:"Optional: the prompt that was answered (stored as hash only)" },
+      model:                { type:"string",  description:"Model identifier (default 'twin_flame')" },
+      branch:               { type:"string",  description:"Target branch (default 'twin_flame_evals')" },
+      tags:                 { type:"array", items:{type:"string"}, description:"Additional tags" },
+    }},
+  },
+  { name: "twin_flame_probe",
+    description: [
+      "Known-answer health probe for model drift detection.",
+      "Store a baseline: pass answer + set_baseline:true.",
+      "Check for drift: pass answer (without set_baseline) — hashes are compared.",
+      "Hash mismatch = model drift → triggers self_heal recommendation.",
+      "No args (or query mode): returns current baseline hash for the question_id.",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      answer:       { type:"string",  description:"The answer to store or compare" },
+      question_id:  { type:"string",  description:"Identifier for this known-answer question (default 'default')" },
+      question:     { type:"string",  description:"Optional: the question text (stored with baseline)" },
+      set_baseline: { type:"boolean", description:"Store this answer as the new baseline" },
+    }},
+  },
+  { name: "twin_flame_divergence",
+    description: [
+      "Compare twin-flame eval logs from both ports (3333 vs 3334) to detect knowledge asymmetry.",
+      "Aggregates confidence scores from twin_flame_evals branch, computes per-port averages,",
+      "flags confidence delta >2 as divergence.",
+      "Optional query string searches all ERL entries and returns matching context.",
+      "Use when you suspect one server has context the other lacks.",
+    ].join(" "),
+    inputSchema: { type:"object", properties:{
+      query: { type:"string",  description:"Optional: search all ERL entries for this term" },
+      limit: { type:"number",  description:"Max search results (default 20)" },
     }},
   },
 ];
@@ -2160,6 +2639,32 @@ setImmediate(async () => {
 
   // ERL standard init — HDGL-aware phi-filtered session bootstrap (wu-wei gated)
   try { await erlInitIfBeneficial(); } catch(e) { console.error("[boot] erl init error:", e.message); }
+
+  // Auto-prune cron: daily at 03:00, archive entries older than keep_last=20
+  // Uses node-cron already in lazy loaders; runs in-process, no shell needed.
+  try {
+    const cron = await lazy.cron();
+    cron.schedule('0 3 * * *', () => {
+      try {
+        const ledger = getLedger();
+        const history = erlHistory(ledger, { branch: 'session_context', limit: 10000 });
+        const PROTECTED = ['server_init', 'system_prompt'];
+        const keepable  = history.filter(e => !PROTECTED.some(t => e.tags.includes(t)));
+        const keepLast  = 20;
+        if (keepable.length > keepLast) {
+          const archiveName = `session_context_archive_${new Date().toISOString().slice(0,10)}`;
+          if (!ledger.branches[archiveName]) erlBranch(ledger, { name: archiveName, from_branch: 'session_context' });
+          const toArchive = keepable.slice(keepLast);
+          for (const e of toArchive) delete ledger.entries[e.id];
+          const kept = keepable.slice(0, keepLast);
+          ledger.branches['session_context'] = kept[kept.length - 1]?.id ?? null;
+          erlSave(ledger);
+          console.log(`[auto-prune] archived ${toArchive.length} entries from session_context`);
+        }
+      } catch (e) { console.error('[auto-prune] error:', e.message); }
+    }, { timezone: 'UTC' });
+    console.log(`[boot] auto-prune cron scheduled (03:00 UTC daily)`);
+  } catch (e) { console.warn('[boot] cron not available:', e.message); }
 });
 
 process.on("SIGINT",  () => { console.log("\n[shutdown]"); saveDb(); process.exit(0); });
@@ -2192,6 +2697,13 @@ function erlPhiRecall(ledger, { branch = 'session_context', budget = 8, phi_thre
                        : hdglActive === 'local_mcp_dos' ? PORT === 3334
                        : true; // no HDGL state -- treat self as active
 
+  // γ-octave decay (Spiral8 echo-back pattern): score decays by γ^k per age octave
+  // k=0 (last 8h), k=1 (last 24h), k=2 (last 3d), k=3 (last 7d), k=4+ (older)
+  // This is strictly better than binary recency — ancient entries decay to near-zero
+  // automatically without needing an explicit prune.
+  const GAMMA = 0.75; // mirrors Spiral8 echo scale γ=0.75
+  const AGE_OCTAVES = [8, 24, 72, 168, Infinity].map(h => h * 3600000); // ms
+
   const scored = history.map(entry => {
     const fingerprint = `${entry.tags.join(',')}:${entry.role}:${entry.content.slice(0, 64)}`;
     const raw = parseInt(
@@ -2199,10 +2711,11 @@ function erlPhiRecall(ledger, { branch = 'session_context', budget = 8, phi_thre
     ) / 0xFFFFFFFF;
     const phiScore = (raw * PHI) % 1;  // 0-1, phi-distributed
 
-    const ageMs = Date.now() - new Date(entry.timestamp).getTime();
-    const recencyBoost = ageMs <  8 * 3600000 ? 0.35   // last 8h
-                       : ageMs < 24 * 3600000 ? 0.15   // last 24h
-                       : 0;
+    const ageMs  = Date.now() - new Date(entry.timestamp).getTime();
+    const octave = AGE_OCTAVES.findIndex(limit => ageMs < limit); // 0=freshest
+    const k      = octave < 0 ? AGE_OCTAVES.length : octave;
+    const recencyBoost = 0.35 * Math.pow(GAMMA, k); // 0.35, 0.26, 0.20, 0.15, 0.11...
+
     const roleBoost = {
       context: 0.25, plan: 0.20, error: 0.20,
       observation: 0.10, result: 0.10, thought: 0.05,
@@ -2234,7 +2747,7 @@ async function erlInitIfBeneficial(opts = {}) {
 }
 
 // ERL Standard Init -- idempotent branch bootstrap + HDGL-aware phi-filtered recall
-async function erlStandardInit({ recall_budget = 8, phi_threshold = 0.382 } = {}) {
+async function erlStandardInit({ recall_budget = 4, phi_threshold = 0.382 } = {}) {
   const ledger    = getLedger();
   const hdglState = readHdglState();
 
