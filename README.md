@@ -1,4 +1,4 @@
-NEW!  Version 0.3 is here - https://github.com/stealthmachines/MCP-Jailbreak/tree/v0.3
+UPDATE!  There are now 14 Branches, which are in chronological order, while newer is not always better depending upon the desired application.  Please scroll down to [# MCP-Jailbreak — Versioning Reference](# MCP-Jailbreak — Versioning Reference) for a detailed versioning explanation.  You may access a given branch using the toggle, or (https://github.com/stealthmachines/MCP-Jailbreak/branches)](by clicking here).
 
 <img width="680" height="272" alt="image" src="https://github.com/user-attachments/assets/9681e874-b61a-4eaf-a565-ba512d307a8c" />
 
