@@ -1,307 +1,324 @@
-# MCP-Jailbreak-0.3 · state0
+# 🧠 local-mcp v3.0.0 — Wu-Wei Unfold Architecture
 
-> **Phi-resonant dual-MCP stack** — two LLM-backed MCP servers, a phi-emergent routing proxy, an ERL v3 hash-chained ledger, and a tri-voice conversation system grounded in the same φ = 1.618… constant as the Analog-Prime conscious platform.
+A fully local MCP server with **57 tools across 14 capability groups**.  
+No cloud. No telemetry. No external APIs (unless you configure Telegram/SMTP).
 
----
+![MCP Server](https://github.com/user-attachments/assets/1a64bc98-8903-4391-8caf-eb00469adab7)
 
-## Stack at a Glance
+## ✨ What Makes This Special
 
-| Process | Port | File | Purpose |
-|---------|------|------|---------|
-| MCP Server A | 3333 | `server.js` | Primary tools + LLM bridge |
-| MCP Server B | 3334 | `server-dos.js` | Mirror — stochastic divergence |
-| Coord-Proxy | 1233 | `coord-proxy.js` | Wu-Wei phi-routing (SOLO / RELAY / CHALLENGE) |
-| Wu-Wei Daemon | — | `wuwei-routing/` | HDGL health writer |
-| LM Studio | 1234 | *(external)* | **Never touch from code** |
-
-```
-Claude / Copilot
-      │
-      ├── MCP tools (SSE) ──► server.js :3333 ──► ERL ledger
-      │                                        └► llm_query ──► LM Studio :1234
-      └──────────────────────► server-dos.js :3334 (mirror)
-                                    │
-coord-proxy :1233 ─────────────────►│ phi-routes between :3333 / :3334 / :1234
-```
+- **🌊 Stream Pipeline Architecture** — Tasks flow through passes like a river (not a dam)
+- **🧠 Elegant Recursive Ledger (ERL v3)** — Hash-chained, git-like commit history with branch/merge support
+- **🔧 57 Primitives** — From shell commands to browser automation, SQLite, Telegram bots, and more
+- **💾 Three Persistence Layers** — Memory (session), Notes (markdown), Database (SQLite)
+- **🎯 Automatic Strategy Selection** — `unfold()` analyzes tasks and pipelines the right operations
 
 ---
 
-## Prerequisites
+## 🚀 Quick Start
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| **Node.js** | ≥ 18 | https://nodejs.org — required for native `fetch` and top-level `await` |
-| **npm** | any | Bundled with Node.js |
-| **LM Studio** | any | https://lmstudio.ai — must be running with ≥ 1 model loaded |
+```bash
+npm install
+node server.js
+```
 
-`launch.mjs` checks the Node version on startup and auto-runs `npm install` on first run. No other setup needed.
+**Connect to:** `http://localhost:3333/sse`  
+**Or drop** `mcp.json` into your LM Studio MCP config.
 
 ---
 
-## Quick Start
+## ⚙️ Configuration
 
-**Requires Node.js ≥ 18 and npm. Nothing else.**
+Copy `.env.example` to `.env` (if you need custom settings):
 
-```powershell
-# Windows — double-click start.bat, or:
-node launch.mjs
-
-# macOS / Linux:
-bash start.sh
-# or: chmod +x start.sh && ./start.sh
-
-# npm:
-npm start
-```
-
-On first run, `launch.mjs` will automatically run `npm install` if `node_modules` is missing.
-
-Options:
-```
-node launch.mjs --no-proxy              # skip coord-proxy (if LM Studio isn't running)
-node launch.mjs --status                # probe all ports + list loaded LLMs
-node launch.mjs --load-model MODEL_ID   # ask LM Studio to load a model (v0.3.x+ API)
-node launch.mjs --help
-npm run status
-```
-
-Ctrl+C (or SIGTERM) shuts down all child processes cleanly.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MCP_PORT` | `3333` | Server port |
+| `MCP_LOG` | `./mcp-audit.log` | Audit trail |
+| `MCP_DB` | `./mcp-data.db` | SQLite database |
+| `MCP_NOTES` | `./notes/` | Notes storage |
+| `MCP_LEDGER` | `./erl-ledger.json` | ERL v3 ledger |
+| `TG_BOT_TOKEN` | — | Telegram bot token |
+| `TG_CHAT_ID` | — | Telegram chat to listen to |
+| `SMTP_HOST/PORT/USER/PASS` | — | Email credentials |
 
 ---
 
-## ERL v3 — Hash-Chained Context Ledger
+## 🛠️ Tool Groups (57 Tools)
 
-ERL (Emergent Reasoning Ledger) is a git-like hash-chained ledger stored in `erl-ledger.json`.
-
-### Key properties
-
-- **Phi-scored retrieval** — recency score uses `γ^k` decay (γ = 0.75, φ = 1.618 base constant)
-- **Concurrent write safety** — spinlock via `erl-ledger.json.lock`
-- **Merkle checkpoints** — root computed every 50 appends (`CHECKPOINT_INTERVAL`)
-- **Branches** — `main`, `session_context`, `twin_flame_evals`, `twin_flame_probes`, `triad_session`
-- **ERL merge** — deterministic merge with conflict detection
-
-### Internal functions (Node.js)
-
-| Function | Purpose |
-|----------|---------|
-| `erlAppend(ledger, { branch, role, content, tags })` | Append entry; returns entry with SHA-256 id |
-| `erlBranch(ledger, { name, from_branch })` | Create branch |
-| `erlHistory(ledger, { branch, limit })` | Retrieve recent entries |
-| `erlVerify(ledger)` | Hash-chain integrity check |
-| `erlSearch(ledger, { query, branch })` | Phi-scored semantic search |
-| `erlMerge(ledger, { source, target })` | Merge two branches |
-| `getLedger()` | Thread-safe read with spinlock |
-| `erlSave(ledger)` | Thread-safe write with spinlock |
-
-### MCP tools (callable over SSE)
-
-`erl_append`, `erl_history`, `erl_search`, `erl_verify`, `erl_merge`, `erl_create_branch`, `context_save`, `context_retrieve`, `erl_fold`, `erl_cleanup`
+| Group | Tools |
+|-------|-------|
+| **shell** | `shell`, `shell_stream` |
+| **filesystem** | `fs_read`, `fs_write`, `fs_list`, `fs_delete`, `fs_stat`, `fs_search` |
+| **browser** | `browser_open`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_screenshot`, `browser_extract`, `browser_close` |
+| **code** | `code_exec` (Python, Node, Bash) |
+| **database** | `db_query`, `db_exec`, `db_tables`, `db_export` (SQLite via sql.js) |
+| **notes** | `notes_write`, `notes_read`, `notes_list`, `notes_delete`, `notes_search` |
+| **web** | `web_fetch` |
+| **system** | `sysinfo`, `processes`, `process_kill`, `clipboard_read`, `clipboard_write`, `notify` |
+| **network** | `http_serve`, `http_serve_stop` |
+| **schedule** | `schedule_add`, `schedule_list`, `schedule_remove` (node-cron) |
+| **email** | `smtp_send` (nodemailer) |
+| **telegram** | `tg_send`, `tg_listen`, `tg_inbox`, `tg_stop` (node-telegram-bot-api) |
+| **memory** | `memory_set`, `memory_get`, `memory_list`, `memory_delete` |
+| **env** | `env_get`, `env_list`, `process_info` |
 
 ---
 
-## MCP Tool Reference (key tools)
+## 🎯 The `unfold()` Pipeline
 
-### `llm_query`
+The heart of this server is the **`unfold()`** function — a single entry point for any multi-step task.
 
-Direct LLM inference through LM Studio. Logs response to ERL by default.
+### How It Works
 
-```json
-{
-  "prompt": "Your question",
-  "model": "qwen3.5-9b@q3_k_xl:2",
-  "max_tokens": 200,
-  "temperature": 0.7,
-  "log": true,
-  "branch": "session_context"
-}
-```
+1. **Analyze** the task (detect URLs, files, audio, code, etc.)
+2. **Select** a pass sequence (e.g., `FETCH→TRANSFORM→STORE→RESPOND`)
+3. **Execute** passes in order, each receiving the previous output
+4. **Respond** with final result
 
-Returns `{ response, prompt_hash, logged_to_erl, model, tokens }`.
+### Example Task Flows
 
-**Timeout**: 90 000 ms. The first inference after a reboot is slow — do not lower below 90s.
+- **Download & Transcribe Audio**  
+  `unfold({ task: "download https://example.com/podcast.mp3 and transcribe it to notes" })`  
+  → `FETCH (binary) → TRANSFORM (ffmpeg→wav) → TRANSFORM (whisper) → STORE (notes) → RESPOND`
 
-**Safety rule**: Never call `llm_query` from `Promise.all` across multiple *different* model names simultaneously. LM Studio will evict the first model when the second request loads.
+- **Browse & Extract**  
+  `unfold({ task: "browse https://example.com and extract the main content" })`  
+  → `BROWSE → RESPOND`
 
-### `twin_flame_eval`
+- **Install Package**  
+  `unfold({ task: "install openai-whisper using pip" })`  
+  → `SHELL → RESPOND`
 
-Log a self-evaluation for a model response. Schema is identical on both ports.
+- **Run Code & Save**  
+  `unfold({ task: "calculate fibonacci(10) and save to notes" })`  
+  → `CODE → STORE → RESPOND`
 
-```json
-{
-  "confidence": 8,
-  "response_summary": "brief description",
-  "prompt": "original prompt",
-  "model": "qwen3.5-9b@q3_k_xl:2",
-  "branch": "twin_flame_evals",
-  "tags": ["custom"]
-}
-```
+- **Multi-step Install**  
+  `unfold({ task: "install ffmpeg and whisper on Windows" })`  
+  → `SHELL → SHELL → RESPOND`
 
-Returns `{ logged, branch, entry_id, confidence }`.
+### Direct Primitives
 
-### `twin_flame_probe`
-
-Known-answer baseline + drift detection. Stores question/answer pairs and tracks hash drift over time.
-
-### `twin_flame_divergence`
-
-Compare the last N eval entries across both servers to measure response divergence.
-
-### `phi_route`
-
-Get the phi-routing decision for a prompt: `SOLO` (< 0.382), `RELAY` (0.382–0.618), or `CHALLENGE` (> 0.618).
+For single known operations, call primitives directly (like calling `deflate()` directly):
+- `shell({ command: "ls -la" })`
+- `fs_read({ path: "file.txt" })`
+- `code_exec({ language: "python", code: "print('hello')" })`
 
 ---
 
-## Demo Scripts
+## 📝 Persistence Layers
 
-### `_twin_demo.mjs` — 2-voice stochastic divergence
+| Layer | Tool | Survives Restart? | Use For |
+|-------|------|------------------|---------|
+| **Memory** | `memory_set/get` | ❌ No | Session working state, temp values |
+| **Notes** | `notes_write/read` | ✅ Yes | Text, transcripts, logs, markdown |
+| **Database** | `db_exec/query` | ✅ Yes | Structured data, records, search |
+| **Ledger** | ERL v3 append | ✅ Yes | Audit trail with hash-chaining |
 
-Two instances of the same model answer the same question. Because sampling is non-deterministic, responses diverge even with identical weights. Measures **stochastic divergence** — how much randomness/temperature contributes to answer variance.
-
-```powershell
-node _twin_demo.mjs
-```
-
-### `_triad_demo.mjs` — 3-voice conversation
-
-Three voices answer the same question. Responses are logged to ERL and a thematic alignment check is run.
-
-- **Voice A** — `qwen3.5-9b@q3_k_xl:2` on port 3333
-- **Voice B** — `qwen3.5-9b@q3_k_xl` on port 3334
-- **Voice C** — GitHub Copilot (inline — no local endpoint needed)
-
-```powershell
-# Default run:
-node _triad_demo.mjs
-
-# Custom models (any LM Studio hot models):
-node _triad_demo.mjs --modelA mistral-7b --modelB llama-3-8b
-
-# Custom question:
-node _triad_demo.mjs --question "What is the most important property of a distributed system?"
-
-# Skip Copilot voice (2-model mode):
-node _triad_demo.mjs --no-copilot
-
-# Tune generation:
-node _triad_demo.mjs --temp 0.9 --max-tokens 300
-```
-
-If a model is offline, its voice is skipped gracefully — the triad degrades to a duo without crashing.
-
-### `_probe.mjs` — single-shot probe
-
-Fire individual MCP tool calls for testing and inspection.
+**Tip:** For anything that must survive restarts, use `notes_write` or `db_exec`, not `memory_set`.
 
 ---
 
-## Coord-Proxy — Wu-Wei Phi-Routing
+## 🗂️ ERL v3: Elegant Recursive Ledger
 
-`coord-proxy.js` (port 1233) sits between your client and LM Studio, routing requests based on a phi-hash of the prompt content:
+A Git-like, hash-chained commit history built into the server:
 
-| Score | Mode | Behaviour |
-|-------|------|-----------|
-| < 0.382 | SOLO | Forward directly to LM Studio :1234 |
-| 0.382–0.618 | RELAY | Send to server A, relay result to server B for enrichment |
-| > 0.618 | CHALLENGE | Send to both servers, have them evaluate each other |
+- **Hash-chain:** Each entry's ID is SHA-256(parentID + timestamp + branch + content)
+- **Branches:** Diverge from any entry, tracked by name
+- **Merging:** Linear replay of entries from source to target branch
+- **Verification:** Full cryptographic verification of any branch
+- **Persistence:** Saved to `erl-ledger.json` on every write
 
-```
-phiScore = (sha256(prompt)[0:8] / 0xFFFFFFFF × φ) % 1
-```
-
-Distribution converges to φ-emergent proportions: **61.8% SOLO / 23.6% RELAY / 14.6% CHALLENGE**.
-
-Check status:
-```powershell
-Invoke-RestMethod http://localhost:1233/status
-```
+**Access via tools:**
+- `unfold({ task: "show last 10 ledger entries" })` → uses `erlHistory`
+- `unfold({ task: "search ledger for 'error'" })` → uses `erlSearch`
+- `unfold({ task: "merge branch 'dev' into main" })` → uses `erlMerge`
 
 ---
 
-## Architecture: 3 Mechanisms, Not Slop
+## 🌐 Browser Automation
 
-Three multi-LLM mechanisms exist in this stack. They are not duplicates — they operate at different layers:
+Browser tools require Playwright with Chromium (~150MB):
 
-| Mechanism | Layer | Purpose |
-|-----------|-------|---------|
-| `_twin_demo.mjs` | Demo script | Measure stochastic variance between two samples of the same model |
-| `_triad_demo.mjs` | Demo script | Explicit 3-voice conversation: 2 local LLMs + Copilot as participant |
-| `coord-proxy.js` | Production routing | SOLO/RELAY/CHALLENGE phi-routing — routes traffic, not a conversation script |
-
-The proxy is the actual production architecture. The demo scripts are measurement tools that use the same underlying transport.
-
----
-
-## Phi Foundation & Analog-Prime Connection
-
-This stack shares a mathematical foundation with the [Analog-Prime `conscious` platform](https://github.com/stealthmachines/Analog-Prime):
-
-**PHI = 1.6180339887498948482** is the governing constant in both systems.
-
-| This stack | Analog-Prime conscious |
-|------------|----------------------|
-| ERL recency decay: `γ^k`, γ = 0.75 | HDGL `Dₙ(r)` resonance: `√(φ·Fₙ·2ⁿ·Pₙ·Ω)·r^((n+1)/8)` |
-| `phiHash(content) % 1` routing thresholds | Slot4096 phi-lattice bucket assignment |
-| SOLO/RELAY/CHALLENGE tri-split | Markov trit gate: −1 / 0 / +1 (REJECT / UNCERTAIN / ACCEPT) |
-| Three-voice triad convergence check | Kuramoto 8D oscillator phase-lock (`S(U) ≈ 1.531`) |
-| ERL hash-chaining | PCR-style hash chains in PhiKernel |
-| Wu-Wei routing (5 compression strategies) | Wu-Wei codec: WW_NONACTION / WW_GENTLE_STREAM / WW_BALANCED_PATH / WW_FLOWING_RIVER / WW_REPEATED_WAVES |
-
-The **Markov trit gate** (−1/0/+1) is genuine tri-state logic — the same reason this stack avoids binary evaluations and uses 1–10 confidence scores. The three-voice triad demo is a digital analog of the Kuramoto synchronisation lock: each voice converges on an answer independently; the divergence metric measures how far apart the phases are.
-
----
-
-## Current Hot Models
-
-```
-qwen3.5-9b@q3_k_xl:2   ← instance 2, persistent
-qwen3.5-9b@q3_k_xl     ← instance 1, reload if evicted after reboot
+```bash
+npx playwright install chromium
 ```
 
-Check LM Studio's **Loaded Models** tab before running any demo.
+The server handles browser sessions automatically (like keeping `z_stream` open across chunks).
 
 ---
 
-## Safety Rules
+## 🔐 Security & Privacy
 
-1. **Never `Promise.all` across different model names** toward LM Studio — eviction kills one model.
-2. **Never auto-discover models** with parallel probes — use confirmed names from the LM Studio UI.
-3. **`llm_query` timeout is 90 000 ms** — first inference post-reboot can be slow.
-4. **Port 1234 is LM Studio** — never send non-inference traffic; never restart it from code.
+- ✅ **100% Local** — No data leaves your machine
+- ✅ **No Telemetry** — Nothing sent to external services
+- ✅ **Audit Log** — All tool calls logged to `mcp-audit.log`
+- ⚠️ **Binary Files** — Use `unfold()` or `shell({ command: "curl..." })`, never `web_fetch()` for MP3, ZIP, PDF, images
 
 ---
 
-## File Map
+## 📡 Telegram Bot-to-Bot Communication
 
+Perfect for agent-to-agent async communication:
+
+1. Create two bots via [@BotFather](https://t.me/BotFather)
+2. Set `TG_BOT_TOKEN` to Bot A's token (or pass inline)
+3. Bot A: `tg_listen()` — starts polling
+4. Bot B: `tg_send({ chat_id: "123456789", message: "Hello" })`
+5. Bot A: `tg_inbox({ limit: 10 })` — reads incoming messages
+
+---
+
+## 📧 Email & Notifications
+
+- **Desktop:** `unfold({ task: "check disk usage and notify me" })`
+- **Telegram:** Configure `TG_BOT_TOKEN` and `TG_CHAT_ID`
+- **Email:** Configure SMTP credentials, then `unfold({ task: "send email to ..." })`
+
+---
+
+## 🕐 Scheduled Jobs
+
+```bash
+unfold({ task: "add a cron job to run daily at 9am" })
 ```
-server.js              MCP Server A — port 3333
-server-dos.js          MCP Server B — port 3334 (mirror of server.js)
-coord-proxy.js         Wu-Wei phi-routing proxy — port 1233
-launch.mjs             Cross-platform one-click launcher (auto-installs deps)
-start.bat              Windows double-click entry point → node launch.mjs
-start.sh               macOS/Linux entry point → node launch.mjs
-start-all.ps1          Legacy PowerShell launcher (Windows only, still works)
-tools_erl.js           ERL v3 tool exports
-tools_cleanup.js       ERL fold / cleanup utilities
-erl-ledger.json        Live ledger
-_twin_demo.mjs         2-voice stochastic divergence demo
-_triad_demo.mjs        3-voice conversation demo (dynamic voices, CLI-configurable)
-_probe.mjs             Single-shot MCP tool probe
-SYSTEM_PROMPT.md       System prompt injected into LLM context
-SYSTEM_CONTEXT.json    Structured context snapshot
-wuwei-routing/         HDGL health state files (health.json written by launch.mjs)
-notes/                 Architecture notes, ERL spec, implementation summaries
+
+Commands:
+- `schedule_add({ id: "daily", expression: "0 9 * * *", command: "echo daily" })`
+- `schedule_list()`
+- `schedule_remove({ id: "daily" })`
+
+---
+
+## 🌐 HTTP File Server
+
+Serve a directory over HTTP:
+```bash
+unfold({ task: "serve C:/myfolder on port 8080" })
+```
+
+Commands:
+- `http_serve({ directory: "./", port: 8080 })`
+- `http_serve_stop({ port: 8080 })`
+
+---
+
+## 📊 SQLite Database
+
+Persistent structured storage via `sql.js`:
+
+```bash
+unfold({ task: "create a table 'tasks' with id, title, status columns" })
+```
+
+Commands:
+- `db_exec({ sql: "CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT, status TEXT)" })`
+- `db_query({ sql: "SELECT * FROM tasks" })`
+- `db_tables()`
+- `db_export()`
+
+---
+
+## 🔍 Environment Variables
+
+Access system env vars:
+```bash
+unfold({ task: "list all environment variables" })
+```
+
+Commands:
+- `env_list()`
+- `env_get({ key: "HOME" })`
+
+---
+
+## 🐙 Process Management
+
+```bash
+unfold({ task: "show running processes" })
+```
+
+Commands:
+- `processes({ filter: "chrome" })`
+- `process_kill({ pid: 12345 })`
+- `sysinfo({ sections: ["cpu", "mem", "disk", "os"] })`
+
+---
+
+## 📋 Clipboard
+
+```bash
+unfold({ task: "read the clipboard" })
+```
+
+Commands:
+- `clipboard_read()`
+- `clipboard_write({ text: "Hello World" })`
+
+---
+
+## 🎨 System Information
+
+```bash
+unfold({ task: "show CPU, memory, disk, and OS info" })
 ```
 
 ---
 
-## Ports Summary
+## 🧪 Testing
 
-| Port | Process | Notes |
-|------|---------|-------|
-| 3333 | server.js | Primary MCP server |
-| 3334 | server-dos.js | Mirror MCP server |
-| 1233 | coord-proxy.js | Wu-Wei routing proxy |
-| 1234 | LM Studio | External — never modify |
+```bash
+npm test  # Currently outputs "Error: no test specified"
+```
+
+To add tests, create a `test/` directory with Jest or Vitest.
+
+---
+
+## 🛡️ License
+
+All software is the property of ZCHG.org pursuant to:  
+https://zchg.org/t/legal-notice-copyright-applicable-ip-and-licensing-read-me/440
+
+This repo does not have the authority to usurp its parent licensing.  
+To purchase licensing, write to: charg.chg.wecharg@gmail.com
+
+---
+
+## 📚 Dependencies
+
+Key packages (from `node_modules`):
+- `@modelcontextprotocol/sdk` — MCP protocol
+- `express` — HTTP server
+- `playwright` — Browser automation
+- `systeminformation` — System info
+- `sql.js` — SQLite in browser/Node
+- `node-telegram-bot-api` — Telegram integration
+- `nodemailer` — Email sending
+- `node-cron` — Scheduled jobs
+- `clipboardy` — Clipboard access
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repo
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+---
+
+## 🆘 Support
+
+- Issues: Report bugs on GitHub
+- Questions: Ask in discussions
+- Features: Propose ideas for new tools
+
+---
+
+**Built with ❤️ by the Wu-Wei team**
+
+*Inspired by "Flow like a river, not like a dam"*

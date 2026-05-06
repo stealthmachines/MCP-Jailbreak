@@ -73,7 +73,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "HDGL Hybrid Routing Daemon v1.0" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Monitoring: local-mcp (3333), local-mcp-dos (3334), LLM (1234)" -ForegroundColor Yellow
-Write-Host "Cycle interval: 10s" -ForegroundColor Yellow
+Write-Host "Cycle interval: 30s" -ForegroundColor Yellow
 Write-Host "PID: $PID" -ForegroundColor Yellow
 Write-Host "Working Dir: C:\Users\Owner\Downloads\MCP-Jailbreak-0.3 (1)\state0\wuwei-routing" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Cyan
@@ -150,6 +150,6 @@ while ($true) {
     }
 
     # Wait for next cycle
-    Start-Sleep -Seconds 10
+    Start-Sleep -Seconds 30
     $currentCycle++
 }

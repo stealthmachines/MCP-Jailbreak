@@ -123,53 +123,11 @@ function erlLoad() {
   };
 }
 
-const LOCK_FILE = LEDGER_FILE + '.lock';
-
 function erlSave(ledger) {
-  // Acquire a file lock so concurrent server writes don't clobber each other.
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
-    try {
-      fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' });
-      break;
-    } catch {
-      // Lock held by peer — spin a bit
-      const t = Date.now() + 3;
-      while (Date.now() < t) { /* busy-wait */ }
-    }
-  }
-  try {
-    // Re-read disk state and merge so neither server loses entries
-    let disk = null;
-    try { disk = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8')); } catch { /* new file */ }
-    if (disk) {
-      // entries are hash-keyed → safe union
-      Object.assign(disk.entries, ledger.entries);
-      // branch tips: adopt our in-memory tip for branches we just modified
-      for (const [br, tip] of Object.entries(ledger.branches)) {
-        if (tip !== null) disk.branches[br] = tip;
-      }
-      // checkpoints: merge per-branch arrays
-      if (ledger.checkpoints) {
-        disk.checkpoints = disk.checkpoints || {};
-        for (const [br, cps] of Object.entries(ledger.checkpoints)) {
-          disk.checkpoints[br] = cps;
-        }
-      }
-      fs.writeFileSync(LEDGER_FILE, JSON.stringify(disk, null, 2));
-    } else {
-      fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
-    }
-  } finally {
-    try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
-  }
+  fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
 }
 
-// Append an entry to a branch, returns the new entry.
-// Every CHECKPOINT_INTERVAL appends, a checkpoint merkle-root is stored
-// so erlVerify only needs to walk the tail (O(tail) not O(n)).
-const CHECKPOINT_INTERVAL = 50;
-
+// Append an entry to a branch, returns the new entry
 function erlAppend(ledger, { branch = "main", role = "thought", content, tags = [], sessionId = null }) {
   if (!branch || typeof branch !== "string") throw new Error("branch required");
   if (!content) throw new Error("content required");
@@ -181,31 +139,6 @@ function erlAppend(ledger, { branch = "main", role = "thought", content, tags = 
   const entry = { id, parentId, branch, timestamp, role, content, tags, sessionId };
   ledger.entries[id] = entry;
   ledger.branches[branch] = id;
-
-  // ── Checkpoint (Spiral8/ERL-Java inspired) ────────────────────────────────
-  if (!ledger.checkpoints) ledger.checkpoints = {};
-  if (!ledger.checkpoints[branch]) ledger.checkpoints[branch] = [];
-  const cpList = ledger.checkpoints[branch];
-  const lastCp = cpList[cpList.length - 1];
-  let countSinceCp = 0;
-  let cur = ledger.entries[id];
-  while (cur) {
-    countSinceCp++;
-    if (lastCp && cur.id === lastCp.tip_id) break;
-    if (!cur.parentId) break;
-    cur = ledger.entries[cur.parentId];
-    if (countSinceCp > CHECKPOINT_INTERVAL + 1) break;
-  }
-  if (countSinceCp >= CHECKPOINT_INTERVAL) {
-    const merkleRoot = crypto
-      .createHash('sha256')
-      .update(cpList.length > 0 ? cpList[cpList.length - 1].tip_id : '')
-      .update(id)
-      .digest('hex')
-      .slice(0, 16);
-    cpList.push({ tip_id: id, timestamp, merkle_root: merkleRoot });
-  }
-
   erlSave(ledger);
   return entry;
 }
@@ -234,51 +167,17 @@ function erlHistory(ledger, { branch = "main", limit = 50 }) {
   return chain; // newest first
 }
 
-// Full cryptographic verification of a branch chain.
-// Uses checkpoint boundary to skip already-verified history (O(tail) not O(n)).
+// Full cryptographic verification of a branch chain
 function erlVerify(ledger, branch = "main") {
-  const checkpoints = ledger.checkpoints?.[branch] ?? [];
-  const lastCp      = checkpoints[checkpoints.length - 1];
-
-  const tail = [];
-  let cur = ledger.entries[ledger.branches[branch]];
-  while (cur) {
-    tail.push(cur);
-    if (lastCp && cur.id === lastCp.tip_id) break;
-    if (!cur.parentId) break;
-    cur = ledger.entries[cur.parentId];
-  }
-
-  const errors = [];
-  for (const entry of tail) {
+  const history = erlHistory(ledger, { branch, limit: Infinity });
+  const errors  = [];
+  for (const entry of history) {
     const expected = erlHash(entry.parentId, entry.timestamp, entry.branch, entry.content);
     if (expected !== entry.id) {
       errors.push({ id: entry.id, expected, note: "hash mismatch — chain tampered" });
     }
   }
-
-  let cpChainValid = true;
-  for (let i = 1; i < checkpoints.length; i++) {
-    const expected = crypto
-      .createHash('sha256')
-      .update(checkpoints[i - 1].tip_id)
-      .update(checkpoints[i].tip_id)
-      .digest('hex')
-      .slice(0, 16);
-    if (expected !== checkpoints[i].merkle_root) {
-      errors.push({ id: checkpoints[i].tip_id, note: 'checkpoint merkle mismatch' });
-      cpChainValid = false;
-    }
-  }
-
-  return {
-    branch,
-    verified_tail: tail.length,
-    checkpoints:   checkpoints.length,
-    cp_chain_valid: cpChainValid,
-    valid: errors.length === 0,
-    errors,
-  };
+  return { branch, length: history.length, valid: errors.length === 0, errors };
 }
 
 // Full-text search across all entries
@@ -1234,6 +1133,8 @@ async function callPrimitive(name, args = {}) {
     }
     case "http_serve": {
       if (fileServers.has(args.port)) throw new Error("Port in use");
+// Initialize ERL ledger on server startup
+await erlStandardInit();
       const srv = http.createServer((req,res) => {
         fs.readFile(path.join(args.directory, req.url==="/"?"index.html":req.url),(err,data)=>{
           if (err) { res.writeHead(404); res.end("Not found"); return; }
@@ -1379,364 +1280,6 @@ async function callPrimitive(name, args = {}) {
       await s.browser.close(); browsers.delete(args.session_id);
       return { closed: args.session_id };
     }
-
-    // ── ERL CONTEXT INIT (MCP tool exposure of erlInitIfBeneficial) ───────────────
-    case "erl_context_init": {
-      if (args.force) _erlInitialized = false;
-      const result = await erlInitIfBeneficial({
-        recall_budget: args.recall_budget ?? 8,
-        phi_threshold: args.phi_threshold ?? 0.382,
-      });
-      return result;
-    }
-
-    // ── SELF-HEAL: TCP-probe both servers, log + return restart actions ────────
-    case "self_heal": {
-      const portsToCheck = args.ports || [3333, 3334];
-      const results = {};
-      for (const p of portsToCheck) {
-        results[p] = { healthy: await tcpProbe("127.0.0.1", p, 500) };
-      }
-      const unhealthy = Object.entries(results)
-        .filter(([, v]) => !v.healthy).map(([p]) => parseInt(p));
-      if (unhealthy.length) {
-        erlAppend(getLedger(), {
-          branch: "session_context", role: "observation",
-          content: `[self_heal] UNHEALTHY at ${new Date().toISOString()}: ports ${unhealthy.join(", ")}`,
-          tags: ["self_heal", "unhealthy", ...unhealthy.map(p => `port_${p}`)],
-        });
-      }
-      const actions = unhealthy.map(p => ({
-        port: p,
-        can_restart: p !== PORT,
-        restart_cmd: p === 3333
-          ? `node server.js`
-          : `set MCP_PORT=3334 && node server-dos.js`,
-        note: p === PORT
-          ? "Cannot restart active server — switch client to peer first"
-          : "Peer server safe to restart — active server unaffected",
-      }));
-      return { checked: portsToCheck, results, unhealthy_count: unhealthy.length,
-               active_port: PORT, actions, erl_logged: unhealthy.length > 0 };
-    }
-
-    // ── SELF-IMPROVE: stage patch for peer server (hot-swap safe) ───────────
-    case "self_improve": {
-      const PEER_PORT = PORT === 3333 ? 3334 : 3333;
-      const PEER_FILE = PORT === 3333 ? "server-dos.js" : "server.js";
-      const OWN_FILE  = PORT === 3333 ? "server.js" : "server-dos.js";
-      const targetFile = (args.target === "self") ? OWN_FILE : PEER_FILE;
-      const targetPath = path.join(process.cwd(), targetFile);
-      if (targetFile === OWN_FILE && !args.allow_self_patch) {
-        return {
-          error: "Safety: patching the active server requires allow_self_patch: true",
-          hint:  `Target '${PEER_FILE}' (port ${PEER_PORT}) — safe to patch while this server is active`,
-        };
-      }
-      if (!args.proposed_content) {
-        const src = fs.readFileSync(targetPath, "utf8");
-        return {
-          target_file: targetFile,
-          target_port: targetFile === OWN_FILE ? PORT : PEER_PORT,
-          line_count:  src.split("\n").length,
-          note: "Supply proposed_content to stage a patch as <file>.proposed",
-        };
-      }
-      const proposedPath = targetPath + ".proposed";
-      fs.writeFileSync(proposedPath, args.proposed_content);
-      erlAppend(getLedger(), {
-        branch: "session_context", role: "plan",
-        content: `[self_improve] Staged patch for ${targetFile}${args.patch_description ? `: ${args.patch_description}` : ""}`,
-        tags: ["self_improve", "patch_staged", targetFile],
-      });
-      return {
-        staged: proposedPath,
-        target_file: targetFile,
-        target_port: targetFile === OWN_FILE ? PORT : PEER_PORT,
-        lines_proposed: args.proposed_content.split("\n").length,
-        apply_steps: [
-          `1. Review:  shell({ command: 'fc "${proposedPath}" "${targetPath}"' })`,
-          `2. Apply:   shell({ command: 'move /y "${proposedPath}" "${targetPath}"' })`,
-          `3. Restart: shell({ command: 'node ${targetFile}' })`,
-        ],
-        active_server_disrupted: targetFile === OWN_FILE,
-      };
-    }
-
-    // ── ERL FOLD: MEGC-inspired breathing compression ─────────────────────────
-    case "erl_fold": {
-      const foldBranch   = args.branch ?? 'session_context';
-      const foldBudget   = args.phi_threshold ?? 0.382;
-      const dryRun       = args.dry_run ?? false;
-      const ledger       = getLedger();
-      const history      = erlHistory(ledger, { branch: foldBranch, limit: 10000 });
-      if (!history.length) return { folded: 0, note: 'branch empty' };
-
-      const FOLD_GAMMA = 0.75;
-      const FOLD_OCTAVES = [8, 24, 72, 168, Infinity].map(h => h * 3600000);
-      const PROTECTED = ['server_init', 'system_prompt'];
-
-      const candidates = history.filter(e => !PROTECTED.some(t => e.tags.includes(t)) && !e.tags.includes('folded'));
-
-      const scored = candidates.map(entry => {
-        const fp  = `${entry.tags.join(',')}:${entry.role}:${entry.content.slice(0, 64)}`;
-        const raw = parseInt(crypto.createHash('sha256').update(fp).digest('hex').slice(0, 8), 16) / 0xFFFFFFFF;
-        const phiScore = (raw * PHI) % 1;
-        const ageMs = Date.now() - new Date(entry.timestamp).getTime();
-        const k = FOLD_OCTAVES.findIndex(l => ageMs < l);
-        const recency = 0.35 * Math.pow(FOLD_GAMMA, k < 0 ? FOLD_OCTAVES.length : k);
-        const roleBoost = { context:0.25, plan:0.20, error:0.20, observation:0.10, result:0.10, thought:0.05 }[entry.role] ?? 0;
-        return { entry, score: phiScore + recency + roleBoost };
-      });
-
-      const toFold = scored.filter(s => s.score < foldBudget).map(s => s.entry);
-      if (!toFold.length) return { folded: 0, note: 'no entries below phi threshold — nothing to fold' };
-      if (dryRun) return { would_fold: toFold.length, total: history.length, dry_run: true, threshold: foldBudget };
-
-      let count = 0;
-      for (const entry of toFold) {
-        if (ledger.entries[entry.id]) {
-          ledger.entries[entry.id].content = 'fold:' + Buffer.from(entry.content).toString('base64');
-          ledger.entries[entry.id].tags    = [...new Set([...entry.tags, 'folded'])];
-          count++;
-        }
-      }
-      erlSave(ledger);
-      return { folded: count, total: history.length, threshold: foldBudget, dry_run: false,
-               note: `${count} entries compressed. Use erl_unfold to restore.` };
-    }
-
-    // ── ERL UNFOLD: restore folded entries ────────────────────────────────────
-    case "erl_unfold": {
-      const unfoldBranch = args.branch ?? 'session_context';
-      const ledger       = getLedger();
-      const history      = erlHistory(ledger, { branch: unfoldBranch, limit: 10000 });
-      const folded       = history.filter(e => e.tags.includes('folded') && e.content.startsWith('fold:'));
-      if (!folded.length) return { unfolded: 0, note: 'no folded entries found' };
-
-      let count = 0;
-      const errors = [];
-      for (const entry of folded) {
-        try {
-          const original = Buffer.from(entry.content.slice(5), 'base64').toString('utf8');
-          ledger.entries[entry.id].content = original;
-          ledger.entries[entry.id].tags    = entry.tags.filter(t => t !== 'folded');
-          count++;
-        } catch (e) {
-          errors.push({ id: entry.id, error: e.message });
-        }
-      }
-      erlSave(ledger);
-      return { unfolded: count, errors, branch: unfoldBranch };
-    }
-
-    // ── ERL PRUNE: archive old session entries ────────────────────────────────
-    case "erl_prune": {
-      const pruneBranch = args.branch ?? 'session_context';
-      const keepLimit   = args.keep_last ?? 20;
-      const dryRun      = args.dry_run ?? false;
-      const ledger      = getLedger();
-      const history     = erlHistory(ledger, { branch: pruneBranch, limit: 10000 });
-      const PROTECTED   = ['server_init', 'system_prompt'];
-      const keepable    = history.filter(e => !PROTECTED.some(t => e.tags.includes(t)));
-      if (keepable.length <= keepLimit) return { pruned: 0, note: 'nothing to prune', total: history.length };
-
-      const toArchive = keepable.slice(keepLimit);
-      if (dryRun) return { would_prune: toArchive.length, total: history.length, dry_run: true };
-
-      const archiveName = `${pruneBranch}_archive_${new Date().toISOString().slice(0,10)}`;
-      if (!ledger.branches[archiveName]) erlBranch(ledger, { name: archiveName, from_branch: pruneBranch });
-      for (const e of toArchive) delete ledger.entries[e.id];
-
-      const kept = keepable.slice(0, keepLimit);
-      ledger.branches[pruneBranch] = kept[kept.length - 1]?.id ?? null;
-      erlSave(ledger);
-      return { pruned: toArchive.length, kept: kept.length, archive_branch: archiveName };
-    }
-
-    // ── PHI ROUTE: classify prompt via phi-hash ───────────────────────────────
-    case "phi_route": {
-      const prompt    = args.prompt ?? '';
-      const hashVal   = parseInt(
-        crypto.createHash('sha256').update(prompt).digest('hex').slice(0, 8), 16
-      ) / 0xFFFFFFFF;
-      const phiScore  = (hashVal * PHI) % 1;
-      const mode      = phiScore < 0.382 ? 'SOLO'
-                      : phiScore < 0.618 ? 'RELAY'
-                      : 'CHALLENGE';
-      return { phi_score: phiScore, mode, prompt_preview: prompt.slice(0, 80) };
-    }
-
-    // ── TWIN-FLAME EVAL: log confidence + reflection ──────────────────────────
-    case "twin_flame_eval": {
-      const tflBranch = args.branch || 'twin_flame_evals';
-      const ledger    = getLedger();
-      if (ledger.branches[tflBranch] === undefined) {
-        erlBranch(ledger, { name: tflBranch, from_branch: 'main' });
-      }
-      const promptHash = args.prompt
-        ? crypto.createHash('sha256').update(args.prompt).digest('hex').slice(0, 16)
-        : null;
-      const entry = erlAppend(ledger, {
-        branch:  tflBranch,
-        role:    'observation',
-        content: JSON.stringify({
-          prompt_hash:          promptHash,
-          confidence:           args.confidence ?? null,
-          response_summary:     args.response_summary    || null,
-          would_do_differently: args.would_do_differently || null,
-          model:                args.model                || 'twin_flame',
-          port:                 PORT,
-        }),
-        tags: [
-          'twin_flame_eval',
-          ...(args.confidence != null ? [`confidence_${args.confidence}`] : []),
-          ...(args.tags || []),
-        ],
-      });
-      return { logged: true, branch: tflBranch, entry_id: entry.id, confidence: args.confidence ?? null };
-    }
-
-    // ── TWIN-FLAME PROBE: known-answer baseline + drift detection ─────────────
-    case "twin_flame_probe": {
-      const ledger = getLedger();
-      if (!ledger.branches['twin_flame_probes']) erlBranch(ledger, { name: 'twin_flame_probes', from_branch: 'main' });
-      const answerHash = crypto.createHash('sha256').update(String(args.answer ?? '')).digest('hex').slice(0, 16);
-      const history    = erlHistory(ledger, { branch: 'twin_flame_probes', limit: 50 });
-      const baseline   = history.find(e => { try { return JSON.parse(e.content).question === args.question; } catch { return false; } });
-
-      if (!baseline) {
-        const entry = erlAppend(ledger, {
-          branch:  'twin_flame_probes',
-          role:    'observation',
-          content: JSON.stringify({ question: args.question, answer_hash: answerHash, port: PORT }),
-          tags:    ['twin_flame', 'probe', 'baseline'],
-        });
-        return { status: 'baseline_stored', id: entry.id, answer_hash: answerHash };
-      }
-
-      const baselineData = JSON.parse(baseline.content);
-      const drifted      = baselineData.answer_hash !== answerHash;
-      if (drifted) {
-        erlAppend(ledger, {
-          branch:  'twin_flame_probes',
-          role:    'error',
-          content: JSON.stringify({ question: args.question, expected: baselineData.answer_hash, got: answerHash, port: PORT }),
-          tags:    ['twin_flame', 'probe', 'drift_detected'],
-        });
-      }
-      return { status: drifted ? 'drift_detected' : 'ok', baseline_hash: baselineData.answer_hash, current_hash: answerHash, drifted };
-    }
-
-    // ── TWIN-FLAME DIVERGENCE: compare both ports' eval logs ──────────────
-    case "twin_flame_divergence": {
-      const query   = args.query ?? '';
-      const limit   = args.limit ?? 20;
-      const ledger  = getLedger();
-
-      const evalHist = erlHistory(ledger, { branch: 'twin_flame_evals', limit: 200 });
-      const byPort   = { 3333: [], 3334: [] };
-      for (const e of evalHist) {
-        try {
-          const parsed = JSON.parse(e.content);
-          const p = parsed.port;
-          if (p === 3333 || p === 3334) byPort[p].push({ ...parsed, id: e.id, timestamp: e.timestamp });
-        } catch { /* skip malformed */ }
-      }
-
-      let searchResults = [];
-      if (query) {
-        const re = new RegExp(query, 'i');
-        searchResults = Object.values(ledger.entries)
-          .filter(e => re.test(e.content) || e.tags.some(t => re.test(t)))
-          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-          .slice(0, limit)
-          .map(e => ({ id: e.id, branch: e.branch, role: e.role, timestamp: e.timestamp,
-                       content_preview: e.content.slice(0, 120), tags: e.tags }));
-      }
-
-      const avg = (arr) => arr.length
-        ? (arr.reduce((s, e) => s + (e.confidence ?? 5), 0) / arr.length).toFixed(2)
-        : null;
-      const conf3333 = avg(byPort[3333]);
-      const conf3334 = avg(byPort[3334]);
-      const confDelta = conf3333 && conf3334
-        ? Math.abs(parseFloat(conf3333) - parseFloat(conf3334)).toFixed(2)
-        : null;
-
-      return {
-        port_3333: { eval_count: byPort[3333].length, avg_confidence: conf3333,
-                     recent: byPort[3333].slice(0, 3) },
-        port_3334: { eval_count: byPort[3334].length, avg_confidence: conf3334,
-                     recent: byPort[3334].slice(0, 3) },
-        confidence_delta: confDelta,
-        diverged: confDelta !== null && parseFloat(confDelta) > 2.0,
-        divergence_note: confDelta !== null && parseFloat(confDelta) > 2.0
-          ? 'Confidence gap >2 between ports — knowledge asymmetry detected; consider twin_flame_probe'
-          : 'Ports aligned within normal confidence variance',
-        query_results: searchResults,
-      };
-    }
-
-    // ── LLM QUERY: forward prompt to LM Studio and log response to ERL ──────────
-    case "llm_query": {
-      const lmPort    = args.lm_port     || 1234;
-      const maxTokens = args.max_tokens  || 512;
-      const logToErl  = args.log !== false;
-      const branch    = args.branch      || 'session_context';
-      if (!args.prompt) return { error: 'prompt is required' };
-
-      const body = {
-        ...(args.model ? { model: args.model } : {}),  // omit → LM Studio uses loaded model
-        messages:    [{ role: 'user', content: args.prompt }],
-        max_tokens:  maxTokens,
-        temperature: args.temperature ?? 0.7,
-        stream:      false,
-      };
-
-      let responseText;
-      try {
-        const res  = await fetch(`http://localhost:${lmPort}/v1/chat/completions`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(body),
-          signal:  AbortSignal.timeout(90000),
-        });
-        const json = await res.json();
-        responseText = json.choices?.[0]?.message?.content ?? JSON.stringify(json);
-      } catch (err) {
-        return { error: `LM Studio unreachable on :${lmPort} — ${err.message}` };
-      }
-
-      const promptHash = crypto.createHash('sha256').update(args.prompt).digest('hex').slice(0, 16);
-
-      if (logToErl) {
-        const ledger = getLedger();
-        erlAppend(ledger, {
-          branch, role: 'context',
-          content: JSON.stringify({
-            tool:             'llm_query',
-            prompt_hash:      promptHash,
-            prompt_preview:   args.prompt.slice(0, 120),
-            response_preview: responseText.slice(0, 300),
-            model:            args.model || null,
-            lm_port:          lmPort,
-            port:             PORT,
-          }),
-          tags: ['llm_query', `lmport_${lmPort}`, `port_${PORT}`],
-        });
-      }
-
-      return {
-        response:      responseText,
-        prompt_hash:   promptHash,
-        lm_port:       lmPort,
-        model:         args.model || null,
-        logged_to_erl: logToErl,
-        branch:        logToErl ? branch : null,
-      };
-    }
-
     default: throw new Error(`Unknown primitive: ${name}`);
   }
 }
@@ -1875,151 +1418,6 @@ const TOOLS = [
     inputSchema: { type:"object", properties:{ session_id:{type:"string"}, selector:{type:"string"}, mode:{type:"string"} }, required:["session_id"] } },
   { name: "browser_close",      description: "Close browser session.",
     inputSchema: { type:"object", properties:{ session_id:{type:"string"} }, required:["session_id"] } },
-
-  // ── ERL CONTEXT + SELF-OPS ──────────────────────────────────────────────────────────────
-  { name: "erl_context_init",
-    description: [
-      "⚡ Initialize or reload ERL session context with HDGL-aware phi-filtered recall.",
-      "Wu-wei gated: skips automatically if already initialized this process lifetime (no bloat).",
-      "Call at session start to seed context with pertinent memories from the ledger.",
-      "pass force:true to override the gate and re-run recall.",
-      "recall_budget controls max entries loaded (default 8).",
-      "phi_threshold is the minimum relevance score 0–1 (default 0.382 = 1/φ²).",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      recall_budget: { type:"number",  description:"Max entries to load from ledger (default 8)" },
-      phi_threshold: { type:"number",  description:"Min phi-relevance score 0–1 (default 0.382)" },
-      force:         { type:"boolean", description:"Override wu-wei gate and re-run init" },
-    }},
-  },
-  { name: "self_heal",
-    description: [
-      "TCP-probe both MCP servers (ports 3333 and 3334).",
-      "Logs unhealthy ports to ERL session_context branch.",
-      "Returns per-port health status and safe restart commands.",
-      "Hot-swap safe: only suggests restarting the peer server, never the active one.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      ports: { type:"array", items:{type:"number"}, description:"Ports to probe (default [3333,3334])" },
-    }},
-  },
-  { name: "self_improve",
-    description: [
-      "Stage a source patch for the peer MCP server (hot-swap safe).",
-      "With no args or no proposed_content: returns current source for inspection.",
-      "With proposed_content: writes <file>.proposed — active server is never overwritten.",
-      "Returns diff/apply/restart steps. To patch active server (risky): target:'self' + allow_self_patch:true.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      target:            { type:"string",  description:"'peer' (default, safe) or 'self' (active, risky)" },
-      proposed_content:  { type:"string",  description:"Full new source to stage as <file>.proposed" },
-      patch_description: { type:"string",  description:"Human-readable description of this patch" },
-      allow_self_patch:  { type:"boolean", description:"Allow patching the active server (requires true)" },
-    }},
-  },
-
-  // ── BLOAT REDUCTION + FOLD/UNFOLD ───────────────────────────────────────────
-  { name: "erl_fold",
-    description: [
-      "MEGC-inspired breathing compression: base64-fold ERL entries that score below the phi threshold.",
-      "Entries tagged server_init or system_prompt are always protected.",
-      "Scoring uses phi-hash + gamma-octave decay (same as erlPhiRecall).",
-      "Use dry_run:true to preview without writing. Restore with erl_unfold.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      branch:        { type:"string",  description:"Branch to fold (default 'session_context')" },
-      phi_threshold: { type:"number",  description:"Entries scoring below this are folded (default 0.382)" },
-      dry_run:       { type:"boolean", description:"Preview only — no changes written" },
-    }},
-  },
-  { name: "erl_unfold",
-    description: "Restore all base64-folded entries on a branch back to their original content. Inverse of erl_fold.",
-    inputSchema: { type:"object", properties:{
-      branch: { type:"string", description:"Branch to unfold (default 'session_context')" },
-    }},
-  },
-
-  { name: "erl_prune",
-    description: [
-      "Archive old session_context entries to a dated branch and rebuild a clean chain.",
-      "Protected tags: server_init, system_prompt — these entries are never pruned.",
-      "Use dry_run:true to preview without writing.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      branch:     { type:"string",  description:"Branch to prune (default 'session_context')" },
-      keep_last:  { type:"number",  description:"Keep this many recent entries (default 20)" },
-      dry_run:    { type:"boolean", description:"Preview only — no changes written" },
-    }},
-  },
-
-  { name: "phi_route",
-    description: "Phi-hash a prompt to determine routing mode: SOLO (<0.382), RELAY (0.382–0.618), or CHALLENGE (>0.618).",
-    inputSchema: { type:"object", required:["prompt"], properties:{
-      prompt: { type:"string", description:"Prompt text to classify" },
-    }},
-  },
-
-  { name: "twin_flame_eval",
-    description: [
-      "Log a twin-flame self-evaluation entry to the ERL ledger.",
-      "Records confidence (1–10), response summary, and reflection on what to do differently.",
-      "High-confidence recent entries surface preferentially on next erlPhiRecall.",
-      "Use after responding to track quality over time and seed improvement loops.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      confidence:           { type:"number",  description:"Self-rated confidence 1–10" },
-      response_summary:     { type:"string",  description:"Brief summary of the response given" },
-      would_do_differently: { type:"string",  description:"Reflection: what to improve next time" },
-      prompt:               { type:"string",  description:"Optional: the prompt that was answered (stored as hash only)" },
-      model:                { type:"string",  description:"Model identifier (default 'twin_flame')" },
-      branch:               { type:"string",  description:"Target branch (default 'twin_flame_evals')" },
-      tags:                 { type:"array", items:{type:"string"}, description:"Additional tags" },
-    }},
-  },
-
-  { name: "twin_flame_probe",
-    description: [
-      "Known-answer health probe for model drift detection.",
-      "Store a baseline: pass answer + set_baseline:true.",
-      "Check for drift: pass answer (without set_baseline) — hashes are compared.",
-      "Hash mismatch = model drift → triggers self_heal recommendation.",
-      "No args (or query mode): returns current baseline hash for the question_id.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      answer:       { type:"string",  description:"The answer to store or compare" },
-      question_id:  { type:"string",  description:"Identifier for this known-answer question (default 'default')" },
-      question:     { type:"string",  description:"Optional: the question text (stored with baseline)" },
-      set_baseline: { type:"boolean", description:"Store this answer as the new baseline" },
-    }},
-  },
-  { name: "twin_flame_divergence",
-    description: [
-      "Compare twin-flame eval logs from both ports (3333 vs 3334) to detect knowledge asymmetry.",
-      "Flags confidence delta >2 as divergence. Optional query searches all ERL entries.",
-      "Use when you suspect one server has context the other lacks.",
-    ].join(" "),
-    inputSchema: { type:"object", properties:{
-      query: { type:"string",  description:"Optional: search all ERL entries for this term" },
-      limit: { type:"number",  description:"Max search results (default 20)" },
-    }},
-  },
-  { name: "llm_query",
-    description: [
-      "Forward a prompt to the local LM Studio instance (port 1234 by default) and return the response.",
-      "Response is automatically logged to ERL (session_context branch) for twin-flame recall.",
-      "Set log:false to skip ERL logging. Use lm_port to target a specific LM Studio port.",
-      "Enables LLM↔LLM communication: call from both ports, then run twin_flame_divergence to compare answers.",
-    ].join(" "),
-    inputSchema: { type:"object", required:["prompt"], properties:{
-      prompt:      { type:"string",  description:"The prompt to send to LM Studio" },
-      model:       { type:"string",  description:"Model name — omit to use LM Studio's currently loaded model" },
-      lm_port:     { type:"number",  description:"LM Studio port (default 1234)" },
-      max_tokens:  { type:"number",  description:"Max response tokens (default 512)" },
-      temperature: { type:"number",  description:"Temperature 0–2 (default 0.7)" },
-      branch:      { type:"string",  description:"ERL branch for logging (default 'session_context')" },
-      log:         { type:"boolean", description:"Log response to ERL (default true)" },
-    }},
-  },
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2042,26 +1440,6 @@ async function probe(cmd) {
       resolve(null);
     });
   });
-}
-
-// ── TCP port probe (same approach as wuwei-routing daemon) ────────────────────
-function tcpProbe(host, port, timeout = 500) {
-  const _net = require("net");
-  return new Promise((resolve) => {
-    const sock = new _net.Socket();
-    const timer = setTimeout(() => { sock.destroy(); resolve(false); }, timeout);
-    sock.connect(port, host, () => { clearTimeout(timer); sock.destroy(); resolve(true); });
-    sock.on("error", () => { clearTimeout(timer); resolve(false); });
-  });
-}
-
-// ── HDGL state reader ─────────────────────────────────────────────────────────
-function readHdglState() {
-  try {
-    const p = path.join(process.cwd(), "wuwei-routing", "state", "health.json");
-    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf8"));
-  } catch {}
-  return null;
 }
 
 function shellExec(command, opts = {}) {
@@ -2635,202 +2013,65 @@ setImmediate(async () => {
   } finally {
     _envProbeRunning = false;
   }
-
-  // ERL standard init — HDGL-aware phi-filtered session bootstrap (wu-wei gated)
-  try { await erlInitIfBeneficial(); } catch(e) { console.error("[boot] erl init error:", e.message); }
-
-  // Auto-prune cron: daily at 03:00 UTC
-  try {
-    const cron = await lazy.cron();
-    cron.schedule('0 3 * * *', () => {
-      try {
-        const ledger = getLedger();
-        const history = erlHistory(ledger, { branch: 'session_context', limit: 10000 });
-        const PROTECTED = ['server_init', 'system_prompt'];
-        const keepable  = history.filter(e => !PROTECTED.some(t => e.tags.includes(t)));
-        const keepLast  = 20;
-        if (keepable.length > keepLast) {
-          const archiveName = `session_context_archive_${new Date().toISOString().slice(0,10)}`;
-          if (!ledger.branches[archiveName]) erlBranch(ledger, { name: archiveName, from_branch: 'session_context' });
-          const toArchive = keepable.slice(keepLast);
-          for (const e of toArchive) delete ledger.entries[e.id];
-          const kept = keepable.slice(0, keepLast);
-          ledger.branches['session_context'] = kept[kept.length - 1]?.id ?? null;
-          erlSave(ledger);
-          console.log(`[auto-prune] archived ${toArchive.length} entries from session_context`);
-        }
-      } catch (e) { console.error('[auto-prune] error:', e.message); }
-    }, { timezone: 'UTC' });
-    console.log(`[boot] auto-prune cron scheduled (03:00 UTC daily)`);
-  } catch (e) { console.warn('[boot] cron not available:', e.message); }
 });
 
 process.on("SIGINT",  () => { console.log("\n[shutdown]"); saveDb(); process.exit(0); });
 process.on("SIGTERM", () => { saveDb(); process.exit(0); });
 
-// =============================================================================
-// ERL INIT SYSTEM  --  HDGL-aware, phi-filtered, wu-wei gated
-// -----------------------------------------------------------------------------
-//
-//  Three layers:
-//    erlPhiRecall()        -- phi-hash score every entry, return top-N by relevance
-//    erlInitIfBeneficial() -- wu-wei gate: skip if already ran this process lifetime
-//    erlStandardInit()     -- idempotent branch bootstrap + phi-filtered recall
-//
-//  Compact single-entry bootstrap (replaces old 2-verbose-entry init).
-//  Recall budget (default 8) caps how much ledger history loads per session.
-// =============================================================================
+// ═════════════════════════════════════════════════════════════════════════════
+// ERL STANDARD INITIALIZATION — Ensures clean session structure on startup
+// ═════════════════════════════════════════════════════════════════════════════
+async function erlStandardInit() {
+  const ledger = getLedger();
 
-const PHI = 1.6180339887498948482; // golden ratio -- mirrors coord-proxy.js
+  // Only initialize if session_context branch doesn't exist
+  if (!ledger.branches["session_context"]) {
+    console.log("[ERL] Initializing standard session structure...");
 
-// Phi-filtered ERL recall -- wu-wei: only pull entries that earn their place.
-// Scores each entry with the same phi-hash routing as coord-proxy.js,
-// boosted by recency, role value, and HDGL active-server designation.
-function erlPhiRecall(ledger, { branch = 'session_context', budget = 8, phi_threshold = 0.382, hdgl_state = null }) {
-  const history = erlHistory(ledger, { branch, limit: 200 });
-  if (!history.length) return [];
-
-  const hdglActive = hdgl_state?.active_server;
-  const isActiveServer = hdglActive === 'local_mcp'     ? PORT === 3333
-                       : hdglActive === 'local_mcp_dos' ? PORT === 3334
-                       : true; // no HDGL state -- treat self as active
-
-  // γ-octave decay (Spiral8 echo-back pattern): score decays by γ^k per age octave
-  const GAMMA = 0.75;
-  const AGE_OCTAVES = [8, 24, 72, 168, Infinity].map(h => h * 3600000);
-
-  const scored = history.map(entry => {
-    const fingerprint = `${entry.tags.join(',')}:${entry.role}:${entry.content.slice(0, 64)}`;
-    const raw = parseInt(
-      crypto.createHash('sha256').update(fingerprint).digest('hex').slice(0, 8), 16
-    ) / 0xFFFFFFFF;
-    const phiScore = (raw * PHI) % 1;  // 0-1, phi-distributed
-
-    const ageMs  = Date.now() - new Date(entry.timestamp).getTime();
-    const octave = AGE_OCTAVES.findIndex(limit => ageMs < limit);
-    const k      = octave < 0 ? AGE_OCTAVES.length : octave;
-    const recencyBoost = 0.35 * Math.pow(GAMMA, k);
-
-    const roleBoost = {
-      context: 0.25, plan: 0.20, error: 0.20,
-      observation: 0.10, result: 0.10, thought: 0.05,
-    }[entry.role] ?? 0;
-    const activeBoost = isActiveServer && ageMs < 3600000 ? 0.10 : 0;
-
-    return { entry, score: phiScore + recencyBoost + roleBoost + activeBoost };
-  });
-
-  return scored
-    .filter(s => s.score >= phi_threshold)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, budget)
-    .map(s => s.entry);
-}
-
-// Wu-wei init gate -- one init per process lifetime.
-// "Do nothing unless action improves the situation."
-// Prevents re-bloating on repeated erl_context_init calls.
-// Override with: erl_context_init({ force: true })
-let _erlInitialized = false;
-
-async function erlInitIfBeneficial(opts = {}) {
-  if (_erlInitialized) {
-    return { skipped: true, reason: 'wu-wei gate: already initialized this process lifetime' };
-  }
-  _erlInitialized = true;
-  return erlStandardInit(opts);
-}
-
-// ERL Standard Init -- idempotent branch bootstrap + HDGL-aware phi-filtered recall
-async function erlStandardInit({ recall_budget = 4, phi_threshold = 0.382 } = {}) {
-  const ledger    = getLedger();
-  const hdglState = readHdglState();
-
-  // Create session_context branch once (idempotent across restarts)
-  if (!ledger.branches['session_context']) {
-    console.log('[ERL] Bootstrapping session_context branch...');
-    erlBranch(ledger, { name: 'session_context' });
-
-    // Entry 1: machine-readable server facts (context role)
-    erlAppend(ledger, {
-      branch: 'session_context',
-      role:   'context',
-      content: JSON.stringify({
-        server:       `local-mcp v3.0.0 port ${PORT}`,
-        endpoint:     `http://localhost:${PORT}/sse`,
-        architecture: 'Wu-Wei Unfold + ERL v3 + HDGL phi-routing',
-        ledger:       LEDGER_FILE,
-        db:           DB_FILE,
-        notes:        NOTES_DIR,
-        initialized:  new Date().toISOString(),
-        hdgl_state:   hdglState ? 'active' : 'not running',
-      }),
-      tags: ['server_init', 'mcp_v3', `port_${PORT}`],
+    // Create session_context branch (diverges from genesis)
+    erlBranch(ledger, {
+      name: "session_context"
     });
 
-    // Entry 2: LLM system instructions (plan role — high phi-recall priority)
+    // Add foundational entry about the MCP server itself
+    const serverIntro = `
+# MCP Server Initialized — ${new Date().toISOString()}
+- Server: local-mcp v3.0.0 (Wu-Wei Unfold Architecture)
+- SSE Endpoint: http://localhost:${PORT}/sse
+- Ledger: ERL v3 (Elegant Recursive Ledger)
+- Persistence: SQLite (${DB_FILE}), Notes (${NOTES_DIR}), Ledger (${LEDGER_FILE})
+- Key Principle: "Flow like a river, not like a dam"
+`;
+
     erlAppend(ledger, {
-      branch: 'session_context',
-      role:   'plan',
-      content: [
-        `You are the local-mcp agent on port ${PORT}.`,
-        '',
-        'ARCHITECTURE: Wu-Wei Unfold pipeline (FETCH→TRANSFORM→STORE→RESPOND) +',
-        'ERL v3 hash-chained ledger + HDGL phi-routing (φ=1.618). A coord-proxy on',
-        'port 1233 routes between this server (local_mcp, 3333) and the peer',
-        '(local_mcp_dos, 3334) using phi-hash mode selection.',
-        '',
-        'TOOL GROUPS:',
-        '  erl_*          — ledger ops: append, history, search, verify, merge, branch',
-        '  erl_context_init — reload session context (wu-wei gated; use force:true to override)',
-        '  self_heal      — TCP-probe both servers; log unhealthy ports; return restart cmds',
-        '  self_improve   — stage a patch file for review; writes *.proposed; never self-applies',
-        '  task_*         — persistent task tracking across sessions',
-        '  schedule_*     — cron-style job scheduling',
-        '  db_*           — SQLite key-value store',
-        '  http_serve     — static file server',
-        '  unfold         — Wu-Wei pipeline dispatcher',
-        '',
-        'REASONING STYLE (wu-wei ethos):',
-        '  1. Do nothing extra. Only act when action measurably improves the situation.',
-        '  2. Prefer erl_append(role:observation) to log findings; role:plan for next steps.',
-        '  3. Call erl_context_init once per session. The wu-wei gate blocks redundant calls.',
-        '  4. Use self_heal before self_improve — rule out infra issues first.',
-        '  5. self_improve always targets the PEER server, never self. Require human review.',
-        '  6. Phi threshold 0.382 filters recall — trust the filter; do not force full history.',
-        '  7. Branch hygiene: work goes in task_* branches, not session_context.',
-        '',
-        'HDGL CONTRACT:',
-        '  - active_server in wuwei-routing/state/health.json names the primary.',
-        '  - SOLO mode (<0.382): handle locally. RELAY (0.382-0.618): forward to peer.',
-        '  - CHALLENGE (>0.618): run both, surface disagreement via erl_merge.',
-      ].join('\n'),
-      tags: ['server_init', 'system_prompt', `port_${PORT}`],
+      branch: "session_context",
+      role: "context",
+      content: serverIntro,
+      tags: ["server_initialized", "mcp_v3", "wu_wei_unfold"]
     });
-    console.log('[ERL] ✓ session_context bootstrapped');
-  }
 
-  // Phi-filtered recall -- wu-wei: only load entries that earn their place
-  const recalled = erlPhiRecall(ledger, {
-    branch: 'session_context', budget: recall_budget,
-    phi_threshold, hdgl_state: hdglState,
-  });
+    // Add a system entry about the session
+    erlAppend(ledger, {
+      branch: "session_context",
+      role: "system",
+      content: `Session started. Ready for tasks. Use 'session_context' branch for core knowledge and 'task_*' branches for specific work. Merge completed tasks back to maintain clean context.`,
+      tags: ["session_start", "guidance"]
+    });
 
-  // Integrity check
-  const verification = erlVerify(ledger, 'session_context');
-  if (!verification.valid) {
-    console.error('[ERL] ✗ Integrity check FAILED:', verification.errors);
+    console.log("[ERL] ✓ Session context initialized with 2 foundational entries");
   } else {
-    const total = erlHistory(ledger, { branch: 'session_context', limit: 10000 }).length;
-    console.log(`[ERL] ✓ Integrity ok | recalled ${recalled.length}/${total} entries (phi >= ${phi_threshold})`);
+    console.log("[ERL] ✓ Session context already exists (skipping initialization)");
   }
 
-  return {
-    branch:         'session_context',
-    recalled_count: recalled.length,
-    phi_threshold,
-    hdgl_active:    !!hdglState,
-    integrity:      verification.valid,
-    recalled,
-  };
+  // Verify integrity
+  const verification = erlVerify(ledger, "session_context");
+  if (!verification.valid) {
+    console.error("[ERL] ✗ Ledger integrity check FAILED!");
+    console.error(verification.errors);
+  } else {
+    console.log("[ERL] ✓ Ledger integrity verified");
+  }
+
+  return ledger;
 }
+
