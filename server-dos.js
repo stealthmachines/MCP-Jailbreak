@@ -46,7 +46,7 @@
  * The agent also retains direct access to all primitive tools for cases
  * where a single known operation is needed (like calling deflate directly).
  *
- * SSE endpoint: http://localhost:3333/sse
+ * SSE endpoint: http://localhost:3334/sse
  */
 
 import { Server }             from "@modelcontextprotocol/sdk/server/index.js";
@@ -65,7 +65,7 @@ import crypto     from "crypto";
 
 const require    = createRequire(import.meta.url);
 const execAsync  = promisify(exec);
-const PORT       = parseInt(process.env.MCP_PORT   || "3333");
+const PORT       = parseInt(process.env.MCP_PORT   || "3334");
 const LOG_FILE   = process.env.MCP_LOG    || path.join(process.cwd(), "mcp-audit.log");
 const DB_FILE    = process.env.MCP_DB     || path.join(process.cwd(), "mcp-data.db");
 const NOTES_DIR  = process.env.MCP_NOTES  || path.join(process.cwd(), "notes");

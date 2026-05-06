@@ -1,150 +1,540 @@
-NEW!  Version 0.3 is here - https://github.com/stealthmachines/MCP-Jailbreak/tree/v0.3
+# 🧠 local-mcp v3.0.0 — Wu-Wei Unfold Architecture
 
-<img width="680" height="272" alt="image" src="https://github.com/user-attachments/assets/9681e874-b61a-4eaf-a565-ba512d307a8c" />
+A fully local MCP server with **57 tools across 14 capability groups**, dual-LLM coordination, HDGL phi-routing, and a persistent hash-chained memory ledger.
+No cloud. No telemetry. No external APIs (unless you configure Telegram/SMTP).
 
-# MCP Jailbreak (local-mcp)
+![MCP Server](https://github.com/user-attachments/assets/1a64bc98-8903-4391-8caf-eb00469adab7)
 
-A fully local MCP (Model Context Protocol) server. No cloud. No telemetry. No external APIs.  
-Gives any MCP-compatible client full tool access to your machine.
+## ✨ What Makes This Special
 
-LM Studio's initial conditions are pretty barebone.  The sandbox is so constricting!  Lets fix that...
+- **🌊 Stream Pipeline Architecture** — Tasks flow through passes like a river (not a dam)
+- **🧠 Elegant Recursive Ledger (ERL v3)** — Hash-chained, git-like commit history with auto-init, branch/merge, and context-tidy protocol
+- **🔀 HDGL Phi-Routing** — Golden-ratio health daemon monitors all services, health-aware failover
+- **🤝 Dual-LLM Coordination** — Two LLM instances cooperate via phi-emergent SOLO/RELAY/CHALLENGE modes
+- **🔧 57 Primitives** — From shell commands to browser automation, SQLite, Telegram bots, and more
+- **💾 Three Persistence Layers** — Memory (session), Notes (markdown), Database (SQLite)
+- **🎯 Automatic Strategy Selection** — `unfold()` analyzes tasks and pipelines the right operations
 
-## Quick start
+---
+
+## 🚀 Quick Start
+
+### Minimal (single server)
 
 ```bash
-# Install deps (one time)
 npm install
+node server.js
+```
 
-# Start the server
+**Connect to:** `http://localhost:3333/sse`
+**Or drop** `mcp.json` into your LM Studio MCP config.
+
+### Full Stack (dual-LLM + routing + coordination)
+
+Start each component in a separate terminal, in order:
+
+```bash
+# 1. Primary MCP server (port 3333, LLM slot 1)
 node server.js
 
-# Or on a custom port
-MCP_PORT=4444 node server.js
+# 2. Secondary MCP server (port 3334, LLM slot 2)
+set MCP_PORT=3334 && node server-dos.js
+
+# 3. HDGL routing daemon (health monitor, phi-state)
+.\wuwei-routing\start.bat
+
+# 4. Coordination proxy (port 1233, OpenAI-compatible API)
+node coord-proxy.js
 ```
 
-Server starts at **http://localhost:3333**
+Check stack health: `http://127.0.0.1:1233/status`
 
 ---
 
-## Connect your client
+## 🔀 HDGL Routing Daemon
 
-Point any MCP client at the SSE endpoint:
+The **High-Dimensional Geometry Load Balancer** runs as a background daemon that monitors all services and writes health state used by the coordination proxy.
 
-```
-http://localhost:3333/sse
-```
+### What It Does
 
-### Open WebUI / AnythingLLM / Msty
-While the local server-as-a-tool-suite was built for LM Studio, it can technically be used for many others platforms.
+- Probes `local-mcp` (port 3333), `local-mcp-dos` (port 3334), and LM Studio (port 1234) every **10 seconds**
+- Uses **TCP socket probes** (500 ms timeout) for MCP servers — SSE endpoints never complete HTTP handshakes, so HTTP health checks always fail; TCP is the correct approach
+- Uses `/v1/models` REST for LM Studio health (returns normal JSON, not SSE)
+- Writes health state to `wuwei-routing/state/`:
+  - `health.json` — full status JSON (HEALTHY / UNHEALTHY per service)
+  - `active_server` — which MCP server is currently primary
+  - `last_cycle` — ISO timestamp of last cycle
+- Phi-spiral math (golden ratio φ = 1.618…) governs routing decisions
 
-In general, add a new MCP connection → SSE → `http://localhost:3333/sse`
+### Start
 
-### LM Studio
-After ensuring Developer Mode is ENABLED, you will need to add the following simple json paramters.  Navigate to Developer (left-hand side panel) → local server → click mcp.json → copy and paste the following in place of whatever was there before.
-
-```json
-{
-  "mcpServers": {
-    "local-mcp": {
-      "url": "http://localhost:3333/sse"
-    }
-  }
-}
+```powershell
+.\wuwei-routing\start.bat
 ```
 
-<img width="1671" height="871" alt="image" src="https://github.com/user-attachments/assets/b70603e0-7caf-4929-afbb-a30645eb90d8" />
+### State Files
 
-Then, quit out of LM Studio, open it back up, load your model.
-
-From here, add the tool within a given chat using button that looks like a hammer at the bottom of chat with bot ...  You should now see 'local-mcp' among the toolset of your friendly bot, which simply needs to be toggle on, or green.
-
-<img width="1008" height="288" alt="image" src="https://github.com/user-attachments/assets/f951db81-fcdd-4309-bd7e-983e911c4082" />
-
-From here, you may need to use a quick prompt to help your bot familiarize itself with the new tools.  I asked my bot about 'local-mcp' and it was utterly confused, but proceeded to list the tool's functions anyway, which we used to latch onto those new hands.  Silly robot.
-
-<img width="1465" height="1001" alt="image" src="https://github.com/user-attachments/assets/94c10eaa-71b3-4bdc-8dad-b0b98a18394f" />
-
-That's it!  You're done!  Happy trails!  Don't forget to pay me for my work after reading the license!
-
-### Claude Desktop (`claude_desktop_config.json`)
-```json
-{
-  "mcpServers": {
-    "local-mcp": {
-      "command": "node",
-      "args": ["/absolute/path/to/local-mcp/server.js"]
-    }
-  }
-}
-```
-
-### Custom client (Node.js)
-```js
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-
-const client = new Client({ name: "my-client", version: "1.0.0" });
-const transport = new SSEClientTransport(new URL("http://localhost:3333/sse"));
-await client.connect(transport);
-
-const tools = await client.listTools();
-console.log(tools);
-
-const result = await client.callTool({ name: "shell", arguments: { command: "uname -a" } });
-console.log(result);
-```
+| File | Contents |
+|------|----------|
+| `wuwei-routing/state/health.json` | Full HEALTHY/UNHEALTHY status for all 3 services |
+| `wuwei-routing/state/active_server` | `local_mcp` or `local_mcp_dos` |
+| `wuwei-routing/state/last_cycle` | ISO timestamp |
 
 ---
 
-## Tools
+## 🤝 Dual-LLM Coordination Proxy
+
+`coord-proxy.js` sits in front of LM Studio and routes requests through **phi-emergent coordination modes** — two LLM instances collaborating rather than one answering alone.
+
+### Architecture
+
+```
+Client → coord-proxy :1233 → LM Studio :1234
+                         ↕ HDGL state (wuwei-routing/state/)
+                         ↕ ERL ledger  (erl-ledger.json, branch: coord)
+```
+
+**LLM slots (LM Studio):**
+| Slot | Model | Context | MCP Server |
+|------|-------|---------|-----------|
+| LLM1 | `qwen3.5-9b@q3_k_xl` | 200,000 tokens | port 3333 |
+| LLM2 | `qwen3.5-9b@q3_k_xl:2` | 199,999 tokens | port 3334 |
+
+### Routing Modes (phi-emergent)
+
+The proxy hashes each incoming request with SHA-256 → multiplies by φ → maps to a mode:
+
+| Mode | Frequency | Behaviour |
+|------|-----------|-----------|
+| **SOLO** | 61.8% | Single LLM answers. HDGL health state biases which LLM is chosen. |
+| **RELAY** | 23.6% | LLM1 drafts → LLM2 refines. |
+| **CHALLENGE** | 14.6% | LLM1 answers → LLM2 critiques → LLM1 revises. |
+
+The 61.8/23.6/14.6 split mirrors the golden ratio's natural proportions.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/chat/completions` | POST | OpenAI-compatible chat (with phi coordination) |
+| `/status` | GET | Live routing + health state JSON |
+| All other `/v1/*` | any | Transparent passthrough to LM Studio :1234 |
+
+### Start
+
+```bash
+node coord-proxy.js
+```
+
+Point your client at `http://127.0.0.1:1233/v1/chat/completions` instead of LM Studio directly.
+
+Every coordination event is committed to the ERL ledger (`coord` branch) automatically.
+
+---
+
+## ⚙️ Configuration
+
+Copy `.env.example` to `.env` (if you need custom settings):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MCP_PORT` | `3333` | Server port |
+| `MCP_LOG` | `./mcp-audit.log` | Audit trail |
+| `MCP_DB` | `./mcp-data.db` | SQLite database |
+| `MCP_NOTES` | `./notes/` | Notes storage |
+| `MCP_LEDGER` | `./erl-ledger.json` | ERL v3 ledger |
+| `TG_BOT_TOKEN` | — | Telegram bot token |
+| `TG_CHAT_ID` | — | Telegram chat to listen to |
+| `SMTP_HOST/PORT/USER/PASS` | — | Email credentials |
+
+---
+
+## 🛠️ Tool Groups (57 Tools)
+
+| Group | Tools |
+|-------|-------|
+| **shell** | `shell`, `shell_stream` |
+| **filesystem** | `fs_read`, `fs_write`, `fs_list`, `fs_delete`, `fs_stat`, `fs_search` |
+| **browser** | `browser_open`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_screenshot`, `browser_extract`, `browser_close` |
+| **code** | `code_exec` (Python, Node, Bash) |
+| **database** | `db_query`, `db_exec`, `db_tables`, `db_export` (SQLite via sql.js) |
+| **notes** | `notes_write`, `notes_read`, `notes_list`, `notes_delete`, `notes_search` |
+| **web** | `web_fetch` |
+| **system** | `sysinfo`, `processes`, `process_kill`, `clipboard_read`, `clipboard_write`, `notify` |
+| **network** | `http_serve`, `http_serve_stop` |
+| **schedule** | `schedule_add`, `schedule_list`, `schedule_remove` (node-cron) |
+| **email** | `smtp_send` (nodemailer) |
+| **telegram** | `tg_send`, `tg_listen`, `tg_inbox`, `tg_stop` (node-telegram-bot-api) |
+| **memory** | `memory_set`, `memory_get`, `memory_list`, `memory_delete` |
+| **env** | `env_get`, `env_list`, `process_info` |
+
+---
+
+## 🎯 The `unfold()` Pipeline
+
+The heart of this server is the **`unfold()`** function — a single entry point for any multi-step task.
+
+### How It Works
+
+1. **Analyze** the task (detect URLs, files, audio, code, etc.)
+2. **Select** a pass sequence (e.g., `FETCH→TRANSFORM→STORE→RESPOND`)
+3. **Execute** passes in order, each receiving the previous output
+4. **Respond** with final result
+
+### Example Task Flows
+
+- **Download & Transcribe Audio**
+  `unfold({ task: "download https://example.com/podcast.mp3 and transcribe it to notes" })`
+  → `FETCH (binary) → TRANSFORM (ffmpeg→wav) → TRANSFORM (whisper) → STORE (notes) → RESPOND`
+
+- **Browse & Extract**
+  `unfold({ task: "browse https://example.com and extract the main content" })`
+  → `BROWSE → RESPOND`
+
+- **Install Package**
+  `unfold({ task: "install openai-whisper using pip" })`
+  → `SHELL → RESPOND`
+
+- **Run Code & Save**
+  `unfold({ task: "calculate fibonacci(10) and save to notes" })`
+  → `CODE → STORE → RESPOND`
+
+- **Multi-step Install**
+  `unfold({ task: "install ffmpeg and whisper on Windows" })`
+  → `SHELL → SHELL → RESPOND`
+
+### Direct Primitives
+
+For single known operations, call primitives directly (like calling `deflate()` directly):
+- `shell({ command: "ls -la" })`
+- `fs_read({ path: "file.txt" })`
+- `code_exec({ language: "python", code: "print('hello')" })`
+
+---
+
+## 📝 Persistence Layers
+
+| Layer | Tool | Survives Restart? | Use For |
+|-------|------|------------------|---------|
+| **Memory** | `memory_set/get` | ❌ No | Session working state, temp values |
+| **Notes** | `notes_write/read` | ✅ Yes | Text, transcripts, logs, markdown |
+| **Database** | `db_exec/query` | ✅ Yes | Structured data, records, search |
+| **Ledger** | ERL v3 append | ✅ Yes | Audit trail with hash-chaining |
+
+**Tip:** For anything that must survive restarts, use `notes_write` or `db_exec`, not `memory_set`.
+
+---
+
+## 🗂️ ERL v3: Elegant Recursive Ledger
+
+A Git-like, hash-chained commit history built into the server — your bot's persistent external memory.
+
+### Core Properties
+
+- **Hash-chain:** Each entry's ID is `SHA-256(parentID + timestamp + branch + content)` — tamper-evident
+- **Branches:** Diverge from any entry, tracked by HEAD pointer
+- **Merging:** Linear replay of entries from source to target branch
+- **Verification:** Full cryptographic walk of any branch
+- **Persistence:** Every write immediately flushes to `erl-ledger.json`
+
+### Auto-Initialization
+
+On every server startup, `erlStandardInit()` runs automatically. It:
+
+1. Creates the `session_context` branch (once — skips if already exists)
+2. Appends a server-info entry (version, ports, key principles)
+3. Appends a session-start guidance entry
+4. Verifies ledger integrity and logs the result
+
+This means the `session_context` branch is always ready before any tool is called.
+
+### Branch Strategy
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Genesis root (diverge-from point for all other branches) |
+| `session_context` | Core knowledge base — auto-created on startup |
+| `task_*` | Per-task work branches (create one per significant task, merge when done) |
+| `coord` | Coordination events written by `coord-proxy.js` (SOLO/RELAY/CHALLENGE logs) |
+
+### MCP Tools (in `tools_erl.js`)
+
+Six ERL operations are exposed as MCP tools:
 
 | Tool | Description |
 |------|-------------|
-| `shell` | Execute any bash command. Returns stdout, stderr, exit_code. |
-| `shell_stream` | Run a command and collect all output lines. |
-| `fs_read` | Read a file → content as text. |
-| `fs_write` | Write or append to a file (auto-creates dirs). |
-| `fs_list` | List directory contents (optionally recursive). |
-| `fs_delete` | Delete a file or directory. |
-| `fs_stat` | Get file metadata: size, type, timestamps, mode. |
-| `web_fetch` | Fetch any URL → status, headers, body text. |
-| `memory_set` | Store a value in the server's in-memory KV store. |
-| `memory_get` | Retrieve a value by key. |
-| `memory_list` | List all stored keys. |
-| `memory_delete` | Delete a key. |
-| `env_get` | Read an environment variable. |
-| `env_list` | List all env var names. |
-| `process_info` | Server process info: pid, cwd, uptime, memory. |
+| `erl_append` | Write an entry to any branch (role: thought/observation/result/plan/error/context) |
+| `erl_history` | Walk a branch back from HEAD, newest first |
+| `erl_search` | Full-text regex search across all entries, filterable by branch/role/tags |
+| `erl_verify` | Cryptographic integrity check of a branch chain |
+| `erl_create_branch` | Create a new branch diverging from an existing one |
+| `erl_merge` | Linear replay of a source branch onto a target branch |
 
----
+### Context Tidying (Manual Protocol)
 
-## Example tool calls
+ERL provides **persistent external memory** but does **not** automatically compress your LM Studio conversation window. When your context fills up, you can recover ~90% of tokens using the manual tidy protocol:
 
-```json
-{ "name": "shell", "arguments": { "command": "ls -la ~" } }
-{ "name": "shell", "arguments": { "command": "python3 script.py", "cwd": "/home/user/project" } }
-{ "name": "fs_write", "arguments": { "path": "/tmp/note.txt", "content": "hello" } }
-{ "name": "web_fetch", "arguments": { "url": "https://example.com" } }
-{ "name": "memory_set", "arguments": { "key": "session_ctx", "value": { "user": "alice" } } }
-```
+1. Note any in-progress task info you want to keep
+2. Clear LM Studio's message history (start a fresh conversation)
+3. Call `unfold` with a task like `"load my session context from the ERL ledger and summarize where we left off"`
+4. The server reads back the `session_context` branch + any relevant `task_*` branches
+5. You resume with full knowledge and an almost-empty context window
 
----
+This protocol is documented in detail in [notes/ERL_cleanup_instructions.md](notes/ERL_cleanup_instructions.md) and [notes/token_recovery_summary.md](notes/token_recovery_summary.md).
 
-## Health check
+> **TL;DR on context tidying:** Yes, it's supported. No, it's not automatic. It's a deliberate manual reset that recovers the context window while all knowledge stays in the ledger.
+
+### Quick ERL Usage
 
 ```bash
-curl http://localhost:3333/health
-```
+# Append a thought
+erl_append({ branch: "task_mywork", role: "thought", content: "...", tags: ["mywork"] })
 
-Returns JSON with server status, uptime, active sessions, and tool list.
+# Read recent history
+erl_history({ branch: "session_context", limit: 10 })
+
+# Search across all entries
+erl_search({ query: "error", branch: "task_mywork" })
+
+# Verify chain integrity
+erl_verify({ branch: "main" })
+
+# Create a work branch
+erl_create_branch({ name: "task_research", from_branch: "main" })
+
+# Merge work into main when done
+erl_merge({ from_branch: "task_research", into_branch: "main" })
+```
 
 ---
 
-## Notes
+## 🌐 Browser Automation
 
-- Memory is in-process only — restarting the server clears it.
-- `shell` runs as whatever user started the server.
-- Listens on `127.0.0.1` only — not exposed to the network by default.
-- To expose on LAN: change `"127.0.0.1"` to `"0.0.0.0"` in `server.js` (last section).
+Browser tools require Playwright with Chromium (~150MB):
 
-<img width="1461" height="1043" alt="image" src="https://github.com/user-attachments/assets/90ea67de-89be-4afc-9db8-b64e1c2d1c32" />
+```bash
+npx playwright install chromium
+```
+
+The server handles browser sessions automatically (like keeping `z_stream` open across chunks).
+
+---
+
+## 🔐 Security & Privacy
+
+- ✅ **100% Local** — No data leaves your machine
+- ✅ **No Telemetry** — Nothing sent to external services
+- ✅ **Audit Log** — All tool calls logged to `mcp-audit.log`
+- ⚠️ **Binary Files** — Use `unfold()` or `shell({ command: "curl..." })`, never `web_fetch()` for MP3, ZIP, PDF, images
+
+---
+
+## 📡 Telegram Bot-to-Bot Communication
+
+Perfect for agent-to-agent async communication:
+
+1. Create two bots via [@BotFather](https://t.me/BotFather)
+2. Set `TG_BOT_TOKEN` to Bot A's token (or pass inline)
+3. Bot A: `tg_listen()` — starts polling
+4. Bot B: `tg_send({ chat_id: "123456789", message: "Hello" })`
+5. Bot A: `tg_inbox({ limit: 10 })` — reads incoming messages
+
+---
+
+## 📧 Email & Notifications
+
+- **Desktop:** `unfold({ task: "check disk usage and notify me" })`
+- **Telegram:** Configure `TG_BOT_TOKEN` and `TG_CHAT_ID`
+- **Email:** Configure SMTP credentials, then `unfold({ task: "send email to ..." })`
+
+---
+
+## 🕐 Scheduled Jobs
+
+```bash
+unfold({ task: "add a cron job to run daily at 9am" })
+```
+
+Commands:
+- `schedule_add({ id: "daily", expression: "0 9 * * *", command: "echo daily" })`
+- `schedule_list()`
+- `schedule_remove({ id: "daily" })`
+
+---
+
+## 🌐 HTTP File Server
+
+Serve a directory over HTTP:
+
+```bash
+unfold({ task: "serve C:/myfolder on port 8080" })
+```
+
+Commands:
+- `http_serve({ directory: "./", port: 8080 })`
+- `http_serve_stop({ port: 8080 })`
+
+---
+
+## 🛡️ License
+
+All software is the property of ZCHG.org pursuant to:
+https://zchg.org/t/legal-notice-copyright-applicable-ip-and-licensing-read-me/440
+
+This repo does not have the authority to usurp its parent licensing.
+To purchase licensing, write to: charg.chg.wecharg@gmail.com
+
+---
+
+## 📧 Email & Notifications
+
+- **Desktop:** `unfold({ task: "check disk usage and notify me" })`
+- **Telegram:** Configure `TG_BOT_TOKEN` and `TG_CHAT_ID`
+- **Email:** Configure SMTP credentials, then `unfold({ task: "send email to ..." })`
+
+---
+
+## 🕐 Scheduled Jobs
+
+```bash
+unfold({ task: "add a cron job to run daily at 9am" })
+```
+
+Commands:
+- `schedule_add({ id: "daily", expression: "0 9 * * *", command: "echo daily" })`
+- `schedule_list()`
+- `schedule_remove({ id: "daily" })`
+
+---
+
+## 🌐 HTTP File Server
+
+Serve a directory over HTTP:
+```bash
+unfold({ task: "serve C:/myfolder on port 8080" })
+```
+
+Commands:
+- `http_serve({ directory: "./", port: 8080 })`
+- `http_serve_stop({ port: 8080 })`
+
+---
+
+## 📊 SQLite Database
+
+Persistent structured storage via `sql.js`:
+
+```bash
+unfold({ task: "create a table 'tasks' with id, title, status columns" })
+```
+
+Commands:
+- `db_exec({ sql: "CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT, status TEXT)" })`
+- `db_query({ sql: "SELECT * FROM tasks" })`
+- `db_tables()`
+- `db_export()`
+
+---
+
+## 🔍 Environment Variables
+
+Access system env vars:
+```bash
+unfold({ task: "list all environment variables" })
+```
+
+Commands:
+- `env_list()`
+- `env_get({ key: "HOME" })`
+
+---
+
+## 🐙 Process Management
+
+```bash
+unfold({ task: "show running processes" })
+```
+
+Commands:
+- `processes({ filter: "chrome" })`
+- `process_kill({ pid: 12345 })`
+- `sysinfo({ sections: ["cpu", "mem", "disk", "os"] })`
+
+---
+
+## 📋 Clipboard
+
+```bash
+unfold({ task: "read the clipboard" })
+```
+
+Commands:
+- `clipboard_read()`
+- `clipboard_write({ text: "Hello World" })`
+
+---
+
+## 🎨 System Information
+
+```bash
+unfold({ task: "show CPU, memory, disk, and OS info" })
+```
+
+---
+
+## 🧪 Testing
+
+```bash
+npm test  # Currently outputs "Error: no test specified"
+```
+
+To add tests, create a `test/` directory with Jest or Vitest.
+
+---
+
+## 🛡️ License
+
+All software is the property of ZCHG.org pursuant to:
+https://zchg.org/t/legal-notice-copyright-applicable-ip-and-licensing-read-me/440
+
+This repo does not have the authority to usurp its parent licensing.
+To purchase licensing, write to: charg.chg.wecharg@gmail.com
+
+---
+
+## 📚 Dependencies
+
+Key packages (from `node_modules`):
+- `@modelcontextprotocol/sdk` — MCP protocol
+- `express` — HTTP server
+- `playwright` — Browser automation
+- `systeminformation` — System info
+- `sql.js` — SQLite in browser/Node
+- `node-telegram-bot-api` — Telegram integration
+- `nodemailer` — Email sending
+- `node-cron` — Scheduled jobs
+- `clipboardy` — Clipboard access
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repo
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+---
+
+## 🆘 Support
+
+- Issues: Report bugs on GitHub
+- Questions: Ask in discussions
+- Features: Propose ideas for new tools
+
+---
+
+**Built with ❤️ by the Wu-Wei team**
+
+*Inspired by "Flow like a river, not like a dam"*
