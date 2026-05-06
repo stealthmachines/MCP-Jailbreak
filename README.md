@@ -1,4 +1,8 @@
-UPDATE!  There are now 14 Branches, which are in chronological order, while newer is not always better depending upon the desired application.  Please scroll down to [# MCP-Jailbreak — Versioning Reference](# MCP-Jailbreak — Versioning Reference) for a detailed versioning explanation.  You may access a given branch using the toggle, or (https://github.com/stealthmachines/MCP-Jailbreak/branches)](by clicking here).
+# UPDATE! There are now 14 branches, in chronological order. Newer is not always better, depending on the desired application.
+
+Please scroll down to [MCP-Jailbreak — Versioning Reference](#mcp-jailbreak--versioning-reference) for a detailed versioning explanation.
+
+You may access a given branch using the branch toggle, or [by clicking here](https://github.com/stealthmachines/MCP-Jailbreak/branches).
 
 <img width="680" height="272" alt="image" src="https://github.com/user-attachments/assets/9681e874-b61a-4eaf-a565-ba512d307a8c" />
 
