@@ -123,8 +123,46 @@ function erlLoad() {
   };
 }
 
+const LOCK_FILE = LEDGER_FILE + '.lock';
+
 function erlSave(ledger) {
-  fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
+  // Acquire a file lock so concurrent server writes don't clobber each other.
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    try {
+      fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' });
+      break;
+    } catch {
+      // Lock held by peer — spin a bit
+      const t = Date.now() + 3;
+      while (Date.now() < t) { /* busy-wait */ }
+    }
+  }
+  try {
+    // Re-read disk state and merge so neither server loses entries
+    let disk = null;
+    try { disk = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8')); } catch { /* new file */ }
+    if (disk) {
+      // entries are hash-keyed → safe union
+      Object.assign(disk.entries, ledger.entries);
+      // branch tips: adopt our in-memory tip for branches we just modified
+      for (const [br, tip] of Object.entries(ledger.branches)) {
+        if (tip !== null) disk.branches[br] = tip;
+      }
+      // checkpoints: merge per-branch arrays
+      if (ledger.checkpoints) {
+        disk.checkpoints = disk.checkpoints || {};
+        for (const [br, cps] of Object.entries(ledger.checkpoints)) {
+          disk.checkpoints[br] = cps;
+        }
+      }
+      fs.writeFileSync(LEDGER_FILE, JSON.stringify(disk, null, 2));
+    } else {
+      fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
+    }
+  } finally {
+    try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
+  }
 }
 
 // Append an entry to a branch, returns the new entry.
@@ -1739,6 +1777,65 @@ async function callPrimitive(name, args = {}) {
       };
     }
 
+    // ── LLM QUERY: forward prompt to LM Studio and log response to ERL ──────────
+    case "llm_query": {
+      const lmPort    = args.lm_port     || 1234;
+      const maxTokens = args.max_tokens  || 512;
+      const logToErl  = args.log !== false;
+      const branch    = args.branch      || 'session_context';
+      if (!args.prompt) return { error: 'prompt is required' };
+
+      const body = {
+        ...(args.model ? { model: args.model } : {}),  // omit → LM Studio uses loaded model
+        messages:    [{ role: 'user', content: args.prompt }],
+        max_tokens:  maxTokens,
+        temperature: args.temperature ?? 0.7,
+        stream:      false,
+      };
+
+      let responseText;
+      try {
+        const res  = await fetch(`http://localhost:${lmPort}/v1/chat/completions`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+          signal:  AbortSignal.timeout(90000),
+        });
+        const json = await res.json();
+        responseText = json.choices?.[0]?.message?.content ?? JSON.stringify(json);
+      } catch (err) {
+        return { error: `LM Studio unreachable on :${lmPort} — ${err.message}` };
+      }
+
+      const promptHash = crypto.createHash('sha256').update(args.prompt).digest('hex').slice(0, 16);
+
+      if (logToErl) {
+        const ledger = getLedger();
+        erlAppend(ledger, {
+          branch, role: 'context',
+          content: JSON.stringify({
+            tool:             'llm_query',
+            prompt_hash:      promptHash,
+            prompt_preview:   args.prompt.slice(0, 120),
+            response_preview: responseText.slice(0, 300),
+            model:            args.model || null,
+            lm_port:          lmPort,
+            port:             PORT,
+          }),
+          tags: ['llm_query', `lmport_${lmPort}`, `port_${PORT}`],
+        });
+      }
+
+      return {
+        response:      responseText,
+        prompt_hash:   promptHash,
+        lm_port:       lmPort,
+        model:         args.model || null,
+        logged_to_erl: logToErl,
+        branch:        logToErl ? branch : null,
+      };
+    }
+
     default: throw new Error(`Unknown primitive: ${name}`);
   }
 }
@@ -2019,6 +2116,23 @@ const TOOLS = [
     inputSchema: { type:"object", properties:{
       query: { type:"string",  description:"Optional: search all ERL entries for this term" },
       limit: { type:"number",  description:"Max search results (default 20)" },
+    }},
+  },
+  { name: "llm_query",
+    description: [
+      "Forward a prompt to the local LM Studio instance (port 1234 by default) and return the response.",
+      "Response is automatically logged to ERL (session_context branch) for twin-flame recall.",
+      "Set log:false to skip ERL logging. Use lm_port to target a specific LM Studio port.",
+      "Enables LLM↔LLM communication: call from both ports, then run twin_flame_divergence to compare answers.",
+    ].join(" "),
+    inputSchema: { type:"object", required:["prompt"], properties:{
+      prompt:      { type:"string",  description:"The prompt to send to LM Studio" },
+      model:       { type:"string",  description:"Model name — omit to use LM Studio's currently loaded model" },
+      lm_port:     { type:"number",  description:"LM Studio port (default 1234)" },
+      max_tokens:  { type:"number",  description:"Max response tokens (default 512)" },
+      temperature: { type:"number",  description:"Temperature 0–2 (default 0.7)" },
+      branch:      { type:"string",  description:"ERL branch for logging (default 'session_context')" },
+      log:         { type:"boolean", description:"Log response to ERL (default true)" },
     }},
   },
 ];

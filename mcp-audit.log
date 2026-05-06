@@ -89,3 +89,53 @@
 {"ts":"2026-05-04T20:46:34.039Z","tool":"shell","args":"{\"command\":\"Get-ChildItem \\\"C:\\\\Users\\\\Owner\\\\Downloads\\\\MCP-Jailbreak-0.3 (1)\\\\state0\\\\wuwei-routing\\\" -ErrorAction SilentlyContinue | Select-Object Name, Length, LastWriteTime\"}","ok":true}
 {"ts":"2026-05-04T20:46:37.998Z","tool":"fs_list","args":"{\"path\":\"C:\\\\Users\\\\Owner\\\\Downloads\\\\MCP-Jailbreak-0.3 (1)\\\\state0\\\\wuwei-routing\"}","ok":true}
 {"ts":"2026-05-04T20:47:29.949Z","tool":"notes_write","args":"{\"content\":\"# ✅ HDGL Hybrid Routing - Complete & Ready!\\n\\n## 📍 Location\\nAll files are now in the correct directory:\\n```\\nC:\\\\Users\\\\Owner\\\\Downloads\\\\MCP-Jailbreak-0.3 (1)\\\\state0\\\\wuwei-routing\\\\","ok":true}
+{"ts":"2026-05-04T22:15:24.861Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":false}
+{"ts":"2026-05-04T22:15:24.907Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":false}
+{"ts":"2026-05-04T22:15:24.915Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"reflection\":\"Probe from VS Code Copilot via _probe.mjs — SSE transport confirmed working.\"}","ok":false}
+{"ts":"2026-05-04T22:15:24.919Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"reflection\":\"Probe from VS Code Copilot via _probe.mjs — SSE transport confirmed working.\"}","ok":false}
+{"ts":"2026-05-04T22:15:24.930Z","tool":"twin_flame_divergence","args":"{}","ok":false}
+{"ts":"2026-05-04T22:15:53.714Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":false}
+{"ts":"2026-05-04T22:15:53.710Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":false}
+{"ts":"2026-05-04T22:15:53.726Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"reflection\":\"Probe from VS Code Copilot via _probe.mjs — SSE transport confirmed working.\"}","ok":false}
+{"ts":"2026-05-04T22:15:53.722Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"reflection\":\"Probe from VS Code Copilot via _probe.mjs — SSE transport confirmed working.\"}","ok":false}
+{"ts":"2026-05-04T22:15:53.733Z","tool":"twin_flame_divergence","args":"{}","ok":false}
+{"ts":"2026-05-04T22:25:44.602Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":true}
+{"ts":"2026-05-04T22:25:44.602Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":true}
+{"ts":"2026-05-04T22:25:44.618Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"reflection\":\"Probe from VS Code Copilot via _probe.mjs — SSE transport confirmed working.\"}","ok":true}
+{"ts":"2026-05-04T22:25:44.618Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"reflection\":\"Probe from VS Code Copilot via _probe.mjs — SSE transport confirmed working.\"}","ok":true}
+{"ts":"2026-05-04T22:25:44.625Z","tool":"twin_flame_divergence","args":"{}","ok":true}
+{"ts":"2026-05-04T22:31:12.602Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":true}
+{"ts":"2026-05-04T22:31:12.658Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":true}
+{"ts":"2026-05-04T22:31:12.671Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"response_summary\":\"Probe from _probe.mjs\",\"would_do_differently\":\"n/a\",\"model\":\"copilot\"}","ok":true}
+{"ts":"2026-05-04T22:31:12.668Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"response_summary\":\"Probe from _probe.mjs\",\"would_do_differently\":\"n/a\",\"model\":\"copilot\"}","ok":true}
+{"ts":"2026-05-04T22:31:12.676Z","tool":"twin_flame_divergence","args":"{}","ok":true}
+{"ts":"2026-05-04T22:31:12.724Z","tool":"llm_query","args":"{\"prompt\":\"In one sentence, what is the golden ratio?\",\"max_tokens\":80,\"log\":true}","ok":true}
+{"ts":"2026-05-04T22:31:12.730Z","tool":"llm_query","args":"{\"prompt\":\"In one sentence, what is the golden ratio?\",\"max_tokens\":80,\"log\":true}","ok":true}
+{"ts":"2026-05-04T22:31:12.737Z","tool":"twin_flame_divergence","args":"{\"query\":\"llm_query\"}","ok":true}
+{"ts":"2026-05-04T22:35:04.723Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":true}
+{"ts":"2026-05-04T22:35:04.723Z","tool":"phi_route","args":"{\"prompt\":\"Can you compare your context to your peer server?\"}","ok":true}
+{"ts":"2026-05-04T22:35:04.738Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"response_summary\":\"Probe from _probe.mjs\",\"would_do_differently\":\"n/a\",\"model\":\"copilot\"}","ok":true}
+{"ts":"2026-05-04T22:35:04.741Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"response_summary\":\"Probe from _probe.mjs\",\"would_do_differently\":\"n/a\",\"model\":\"copilot\"}","ok":true}
+{"ts":"2026-05-04T22:35:04.749Z","tool":"twin_flame_divergence","args":"{}","ok":true}
+{"ts":"2026-05-04T22:35:04.794Z","tool":"llm_query","args":"{\"prompt\":\"In one sentence, what is the golden ratio?\",\"max_tokens\":80,\"log\":true}","ok":true}
+{"ts":"2026-05-04T22:35:04.796Z","tool":"llm_query","args":"{\"prompt\":\"In one sentence, what is the golden ratio?\",\"max_tokens\":80,\"log\":true}","ok":true}
+{"ts":"2026-05-04T22:35:04.806Z","tool":"twin_flame_divergence","args":"{\"query\":\"llm_query\"}","ok":true}
+{"ts":"2026-05-04T22:38:04.178Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q8_k_xl\",\"max_tokens\":200,\"temperature\":0.7,\"log\"","ok":true}
+{"ts":"2026-05-04T22:38:21.553Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-4b-sft-claude-opus-reasoning-unsloth\",\"max_tokens\":2","ok":true}
+{"ts":"2026-05-04T22:38:21.570Z","tool":"twin_flame_eval","args":"{\"confidence\":7,\"response_summary\":\"llm_query answer to governance question\",\"model\":\"qwen3.5-4b-sft-claude-opus-reasoning-unsloth\",\"prompt\":\"If you had to choose one principle that should govern all ","ok":true}
+{"ts":"2026-05-04T22:38:21.581Z","tool":"twin_flame_divergence","args":"{\"query\":\"llm_query\"}","ok":true}
+{"ts":"2026-05-04T22:43:08.512Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q3_k_xl:2\",\"max_tokens\":200,\"temperature\":0.7,\"lo","ok":true}
+{"ts":"2026-05-04T22:43:09.928Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-4b-sft-claude-opus-reasoning-unsloth\",\"max_tokens\":2","ok":true}
+{"ts":"2026-05-04T22:43:53.140Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-4b-sft-claude-opus-reasoning-unsloth\",\"max_tokens\":2","ok":true}
+{"ts":"2026-05-04T22:43:54.923Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q3_k_xl:2\",\"max_tokens\":200,\"temperature\":0.7,\"lo","ok":true}
+{"ts":"2026-05-04T22:43:54.939Z","tool":"twin_flame_eval","args":"{\"confidence\":8,\"response_summary\":\"llm_query answer to governance question\",\"model\":\"qwen3.5-4b-sft-claude-opus-reasoning-unsloth\",\"prompt\":\"If you had to choose one principle that should govern all ","ok":true}
+{"ts":"2026-05-04T22:43:54.943Z","tool":"twin_flame_eval","args":"{\"confidence\":10,\"response_summary\":\"llm_query answer to governance question (76 words)\",\"model\":\"qwen3.5-9b@q3_k_xl:2\",\"prompt\":\"If you had to choose one principle that should govern all AI systems, ","ok":true}
+{"ts":"2026-05-04T22:43:54.951Z","tool":"twin_flame_divergence","args":"{\"query\":\"llm_query\"}","ok":true}
+{"ts":"2026-05-04T22:51:52.553Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q3_k_xl\",\"max_tokens\":200,\"temperature\":0.7,\"log\"","ok":true}
+{"ts":"2026-05-04T22:51:52.555Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q3_k_xl:2\",\"max_tokens\":200,\"temperature\":0.7,\"lo","ok":true}
+{"ts":"2026-05-04T22:51:52.574Z","tool":"twin_flame_divergence","args":"{\"query\":\"llm_query\"}","ok":true}
+{"ts":"2026-05-04T22:56:27.163Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q3_k_xl:2\",\"max_tokens\":200,\"temperature\":0.7,\"lo","ok":true}
+{"ts":"2026-05-04T22:56:32.164Z","tool":"llm_query","args":"{\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it be and why? Answer in 3 sentences.\",\"model\":\"qwen3.5-9b@q3_k_xl\",\"max_tokens\":200,\"temperature\":0.7,\"log\"","ok":true}
+{"ts":"2026-05-04T22:56:32.175Z","tool":"erl_append","args":"{\"content\":\"{\\\"tool\\\":\\\"llm_query\\\",\\\"model\\\":\\\"github-copilot\\\",\\\"prompt_hash\\\":\\\"7cfee26a07a0136a\\\",\\\"prompt_preview\\\":\\\"If you had to choose one principle that should govern all AI systems, what wo","ok":false}
+{"ts":"2026-05-04T22:56:32.188Z","tool":"twin_flame_eval","args":"{\"confidence\":10,\"response_summary\":\"triad: governance question (80 words)\",\"model\":\"qwen3.5-9b@q3_k_xl:2\",\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it","ok":true}
+{"ts":"2026-05-04T22:56:32.192Z","tool":"twin_flame_eval","args":"{\"confidence\":10,\"response_summary\":\"triad: governance question (90 words)\",\"model\":\"qwen3.5-9b@q3_k_xl\",\"prompt\":\"If you had to choose one principle that should govern all AI systems, what would it b","ok":true}
