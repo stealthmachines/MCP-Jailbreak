@@ -1,5 +1,5 @@
 @echo off
-:: MCP-Jailbreak-0.3 · state0 — Windows one-click launcher
+:: Easy by zCHG.org — Windows one-click launcher
 :: Double-click this file to start the full stack.
 :: Requires Node.js ≥ 18 installed and on PATH.
 

@@ -1,4 +1,4 @@
-# MCP-Jailbreak-0.3 · state0
+# Easy by zCHG.org
 
 > **Phi-resonant dual-MCP stack** — two LLM-backed MCP servers, a phi-emergent routing proxy, an ERL v3 hash-chained ledger, and a tri-voice conversation system grounded in the same φ = 1.618… constant as the Analog-Prime conscious platform.
 
@@ -28,17 +28,60 @@ coord-proxy :1233 ─────────────────►│ phi-
 
 ## Prerequisites
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| **Node.js** | ≥ 18 | https://nodejs.org — required for native `fetch` and top-level `await` |
-| **npm** | any | Bundled with Node.js |
-| **LM Studio** | any | https://lmstudio.ai — must be running with ≥ 1 model loaded |
-
-`launch.mjs` checks the Node version on startup and auto-runs `npm install` on first run. No other setup needed.
+**None.** The installer handles everything.
 
 ---
 
-## Quick Start
+## One-Click Install + Run
+
+### Windows
+Double-click **`INSTALL.bat`** — that's it.
+
+### macOS / Linux
+```bash
+bash install.sh
+```
+
+What happens automatically:
+1. **Node.js LTS** installed if missing (Windows: winget or MSI; macOS: Homebrew; Linux: NodeSource/apt/dnf/pacman)
+2. **npm packages** installed
+3. **LM Studio** downloaded and installed silently
+4. **Qwen3.5-9B GGUF** (~4 GB) downloaded and imported into LM Studio
+5. **LM Studio server** started on :1234, model loaded into memory
+6. **MCP stack** started (server.js :3333 + server-dos.js :3334 + coord-proxy :1233)
+
+### Install options
+```bash
+node install.mjs --no-launch     # install everything but don't start the stack yet
+node install.mjs --skip-model    # skip the 4 GB download (model already present)
+node install.mjs --status        # show what's installed and what's missing
+```
+
+---
+
+## Already installed? (just start the stack)
+
+```bash
+# Windows
+start.bat
+
+# macOS / Linux
+bash start.sh
+
+# or directly
+node launch.mjs
+```
+
+`launch.mjs` auto-detects whether the LM Studio server is running and starts it if not. If no models are loaded it triggers a background `lms load`.
+
+### launch.mjs options
+```bash
+node launch.mjs --no-proxy              # skip coord-proxy (if LM Studio isn't running)
+node launch.mjs --status                # probe all ports + list loaded LLMs
+node launch.mjs --load-model MODEL_ID   # ask LM Studio to load a specific model
+node launch.mjs --help
+npm run status
+```
 
 **Requires Node.js ≥ 18 and npm. Nothing else.**
 

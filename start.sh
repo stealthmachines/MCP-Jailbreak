@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MCP-Jailbreak-0.3 · state0 — macOS/Linux one-click launcher
+# Easy by zCHG.org — macOS/Linux one-click launcher
 # Run:  bash start.sh
 # Or make executable:  chmod +x start.sh && ./start.sh
 

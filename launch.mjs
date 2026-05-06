@@ -18,11 +18,12 @@
  *   Linux    → bash start.sh
  */
 
-import { spawn, execSync }    from 'child_process';
+import { spawn, execSync, spawnSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { createServer }       from 'net';
 import { fileURLToPath }      from 'url';
 import path                   from 'path';
+import os                     from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,7 +57,7 @@ const LOAD_MODEL = LOAD_IDX >= 0 ? argv[LOAD_IDX + 1] : null;
 
 if (HELP) {
   console.log(`
-  ${c.bold}launch.mjs${c.reset} — MCP-Jailbreak-0.3 · state0
+  ${c.bold}launch.mjs${c.reset} — Easy by zCHG.org
 
   ${c.cyan}node launch.mjs${c.reset}                         start everything
   ${c.cyan}node launch.mjs --no-proxy${c.reset}              skip coord-proxy (:1233)
@@ -153,6 +154,47 @@ function ensureDeps() {
       process.exit(1);
     }
   }
+}
+
+// ── lms CLI helpers ───────────────────────────────────────────────────────────
+// lms.exe (Windows) / lms (macOS+Linux) — bundled with LM Studio in ~/.lmstudio/bin
+const LMS_BIN = (() => {
+  const home = os.homedir();
+  const bin  = process.platform === 'win32' ? 'lms.exe' : 'lms';
+  return path.join(home, '.lmstudio', 'bin', bin);
+})();
+
+function lmsRun(...args) {
+  if (!existsSync(LMS_BIN)) return { ok: false, out: '' };
+  try {
+    const r = spawnSync(LMS_BIN, args, { encoding: 'utf8', timeout: 20000 });
+    return { ok: r.status === 0, out: (r.stdout || '').trim() };
+  } catch { return { ok: false, out: '' }; }
+}
+
+/** Ensure LM Studio server is running via lms server start */
+async function ensureLmsServer() {
+  if (!existsSync(LMS_BIN)) return; // LM Studio not installed — already warned by checkLmStudio
+  const st = lmsRun('server', 'status');
+  if (st.out.toLowerCase().includes('running')) return; // already up
+  console.log(`${c.cyan}[LM Studio]${c.reset} Server not running — starting via lms server start ...`);
+  const started = spawnSync(LMS_BIN, ['server', 'start'], { stdio: 'inherit', timeout: 20000 });
+  if (started.status === 0) {
+    console.log(`${c.green}[LM Studio]${c.reset} Server started on :1234`);
+  } else {
+    console.log(`${c.yellow}[LM Studio]${c.reset} Could not auto-start server. Start LM Studio manually or run INSTALL.bat / install.sh first.`);
+  }
+}
+
+/** Load a model by key via lms load -y (non-blocking — model loads in background) */
+function lmsLoadModel(key) {
+  if (!existsSync(LMS_BIN)) return;
+  console.log(`${c.cyan}[LM Studio]${c.reset} Loading model in background: ${key}`);
+  const child = spawn(LMS_BIN, ['load', key, '-y'], {
+    stdio: 'ignore',
+    detached: true,
+  });
+  child.unref(); // don't block the launcher
 }
 
 // ── LM Studio model check ─────────────────────────────────────────────────────
@@ -299,8 +341,31 @@ if (LOAD_MODEL) {
 
 ensureDeps();
 
-console.log(`\n${c.bold}${c.cyan}MCP-Jailbreak-0.3 · state0${c.reset}`);
+console.log(`\n${c.bold}${c.cyan}Easy by zCHG.org${c.reset}`);
 console.log(`${c.gray}Node ${process.version}  ·  ${process.platform}/${process.arch}  ·  ${new Date().toISOString()}${c.reset}\n`);
+
+// ── LM Studio preflight ───────────────────────────────────────────────────────
+// Ensures the LM Studio server is up and the model is loaded before the MCP
+// stack starts, so the first llm_query call doesn't time out cold.
+await ensureLmsServer();
+
+// Check model status and trigger a background load if needed
+const lmState = await checkLmStudio();
+if (lmState.up) {
+  if (lmState.models.length === 0) {
+    // No models loaded — try to load the default model via lms
+    const defaultKey = lmsRun('ls').out
+      .split('\n')
+      .map(l => l.trim().split(/\s+/)[0])
+      .find(k => k && k.length > 3 && !k.startsWith('You') && !k.startsWith('LLM') && !k.startsWith('EMBED'));
+    if (defaultKey) {
+      lmsLoadModel(defaultKey);
+      console.log(`${c.cyan}[LM Studio]${c.reset} Model loading in background — stack will start now, first query may be slow.`);
+    } else {
+      console.log(`${c.yellow}[LM Studio]${c.reset} No models on disk. Run: node install.mjs`);
+    }
+  }
+}
 
 await showStatus();
 

@@ -1,7 +1,7 @@
 {
-  "name": "local-mcp",
+  "name": "easy-zchg",
   "version": "1.0.0",
-  "description": "",
+  "description": "Easy by zCHG.org — phi-resonant dual-MCP stack",
   "main": "index.js",
   "scripts": {
     "start":  "node launch.mjs",
