@@ -1,0 +1,21 @@
+{
+  "cycle_id": 148823,
+  "local_mcp_dos": {
+    "llm_context": 199999,
+    "last_check": "2026-05-04T17:38:45.7330670-06:00",
+    "status": "HEALTHY",
+    "port": 3334
+  },
+  "llm": {
+    "last_check": "2026-05-04T17:38:45.7330670-06:00",
+    "status": "HEALTHY",
+    "port": 1234
+  },
+  "timestamp": "2026-05-04T17:38:45.7330670-06:00",
+  "local_mcp": {
+    "llm_context": 200000,
+    "last_check": "2026-05-04T17:38:45.7330670-06:00",
+    "status": "HEALTHY",
+    "port": 3333
+  }
+}
