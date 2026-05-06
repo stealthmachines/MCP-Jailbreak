@@ -28,20 +28,31 @@ coord-proxy :1233 ─────────────────►│ phi-
 
 ## Quick Start
 
+**Requires Node.js ≥ 18 and npm. Nothing else.**
+
 ```powershell
-# Start all 4 processes (separate cmd windows):
-.\start-all.ps1
+# Windows — double-click start.bat, or:
+node launch.mjs
 
-# Options:
-.\start-all.ps1 -NoProxy    # skip coord-proxy (2-server mode)
-.\start-all.ps1 -NoDaemon   # skip wuwei health writer
-.\start-all.ps1 -Status     # print process status and exit
+# macOS / Linux:
+bash start.sh
+# or: chmod +x start.sh && ./start.sh
 
-# Or start servers individually (hidden background):
-Start-Process node -ArgumentList 'server.js'      -WorkingDirectory $PWD -WindowStyle Hidden
-Start-Process node -ArgumentList 'server-dos.js'  -WorkingDirectory $PWD -WindowStyle Hidden
-Start-Process node -ArgumentList 'coord-proxy.js' -WorkingDirectory $PWD -WindowStyle Hidden
+# npm:
+npm start
 ```
+
+On first run, `launch.mjs` will automatically run `npm install` if `node_modules` is missing.
+
+Options:
+```
+node launch.mjs --no-proxy   # skip coord-proxy (if LM Studio isn't running)
+node launch.mjs --status     # probe all ports, no action
+node launch.mjs --help
+npm run status
+```
+
+Ctrl+C (or SIGTERM) shuts down all child processes cleanly.
 
 ---
 
@@ -255,7 +266,10 @@ Check LM Studio's **Loaded Models** tab before running any demo.
 server.js              MCP Server A — port 3333
 server-dos.js          MCP Server B — port 3334 (mirror of server.js)
 coord-proxy.js         Wu-Wei phi-routing proxy — port 1233
-start-all.ps1          Launch all 4 processes
+launch.mjs             Cross-platform one-click launcher (auto-installs deps)
+start.bat              Windows double-click entry point → node launch.mjs
+start.sh               macOS/Linux entry point → node launch.mjs
+start-all.ps1          Legacy PowerShell launcher (Windows only, still works)
 tools_erl.js           ERL v3 tool exports
 tools_cleanup.js       ERL fold / cleanup utilities
 erl-ledger.json        Live ledger
@@ -264,7 +278,7 @@ _triad_demo.mjs        3-voice conversation demo (dynamic voices, CLI-configurab
 _probe.mjs             Single-shot MCP tool probe
 SYSTEM_PROMPT.md       System prompt injected into LLM context
 SYSTEM_CONTEXT.json    Structured context snapshot
-wuwei-routing/         HDGL health writer daemon + phi-router scripts
+wuwei-routing/         HDGL health state files (health.json written by launch.mjs)
 notes/                 Architecture notes, ERL spec, implementation summaries
 ```
 
