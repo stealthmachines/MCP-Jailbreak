@@ -4,6 +4,8 @@ Please scroll down to [MCP-Jailbreak — Versioning Reference](#mcp-jailbreak--v
 
 You may access a given branch using the branch toggle, or [by clicking here](https://github.com/stealthmachines/MCP-Jailbreak/branches).
 
+Basically, State0, State1 and State2 are pre-v0.4 sub-branches of v0.3, while everything else is in chronological order by version.  I like State0-2 because they are so lean and simple, but newer versions pack on new features at the expense of simplicity and a heavier context file, which causes the context file to fill up quickly.  This is offset by the persistant memory of our ledger-as-memory which ramps up in capability per the [MCP-Jailbreak — Versioning Reference](#mcp-jailbreak--versioning-reference).  
+
 <img width="680" height="272" alt="image" src="https://github.com/user-attachments/assets/9681e874-b61a-4eaf-a565-ba512d307a8c" />
 
 # MCP Jailbreak (local-mcp)
